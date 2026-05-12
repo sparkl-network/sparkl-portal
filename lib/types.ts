@@ -6,7 +6,7 @@ export enum SecurityTier {
   TEE_VERIFIED = 1,
 }
 
-/** Mirrors `ProviderInfo` struct return from `ProviderRegistry.getProvider`. */
+/** Mirrors `NodeInfo` struct return from `ProviderRegistry.getProvider` (keyed by `nodeId`). */
 export type ProviderInfo = {
   payout: Address;
   feeBps: number;
@@ -14,9 +14,10 @@ export type ProviderInfo = {
   supportsBestEffort: boolean;
   supportsTEE: boolean;
   teeReportHash: `0x${string}`;
+  metadataURI: string;
 };
 
-/** Registered provider row (registry mapping key + struct). */
+/** Registry row: `address` is the on-chain node identity (`nodeId`), not necessarily the operator. */
 export type RegisteredProvider = {
   address: Address;
   info: ProviderInfo;

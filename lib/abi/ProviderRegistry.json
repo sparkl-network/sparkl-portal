@@ -33,7 +33,7 @@
     "name": "getMetadataURI",
     "inputs": [
       {
-        "name": "provider",
+        "name": "nodeId",
         "type": "address",
         "internalType": "address"
       }
@@ -52,7 +52,7 @@
     "name": "getPricePer1k",
     "inputs": [
       {
-        "name": "provider",
+        "name": "nodeId",
         "type": "address",
         "internalType": "address"
       },
@@ -76,7 +76,7 @@
     "name": "getProvider",
     "inputs": [
       {
-        "name": "provider",
+        "name": "nodeId",
         "type": "address",
         "internalType": "address"
       }
@@ -85,7 +85,7 @@
       {
         "name": "",
         "type": "tuple",
-        "internalType": "struct ProviderInfo",
+        "internalType": "struct NodeInfo",
         "components": [
           {
             "name": "payout",
@@ -116,8 +116,100 @@
             "name": "teeReportHash",
             "type": "bytes32",
             "internalType": "bytes32"
+          },
+          {
+            "name": "metadataURI",
+            "type": "string",
+            "internalType": "string"
           }
         ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nodeOperator",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nodes",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "payout",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "feeBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "supportsBestEffort",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "supportsTEE",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "teeReportHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "metadataURI",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "operatorNodes",
+    "inputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
       }
     ],
     "stateMutability": "view"
@@ -137,8 +229,13 @@
   },
   {
     "type": "function",
-    "name": "registerProvider",
+    "name": "registerNode",
     "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "internalType": "address"
+      },
       {
         "name": "payout",
         "type": "address",
@@ -178,8 +275,85 @@
   },
   {
     "type": "function",
-    "name": "setPricing",
+    "name": "setNodeActive",
     "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNodeFee",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "feeBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNodeMetadata",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "uri",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNodePayout",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "payout",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNodePricing",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "internalType": "address"
+      },
       {
         "name": "tier",
         "type": "uint8",
@@ -196,54 +370,10 @@
   },
   {
     "type": "function",
-    "name": "setProviderActive",
-    "inputs": [
-      {
-        "name": "active",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setProviderFee",
-    "inputs": [
-      {
-        "name": "provider",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "feeBps",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setProviderPayout",
-    "inputs": [
-      {
-        "name": "payout",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setTEEProof",
     "inputs": [
       {
-        "name": "provider",
+        "name": "nodeId",
         "type": "address",
         "internalType": "address"
       },
@@ -261,7 +391,7 @@
     "name": "supportsTier",
     "inputs": [
       {
-        "name": "provider",
+        "name": "nodeId",
         "type": "address",
         "internalType": "address"
       },
@@ -314,6 +444,107 @@
   },
   {
     "type": "event",
+    "name": "NodeActiveUpdated",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodeFeeUpdated",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "feeBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodeMetadataUpdated",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "metadataURI",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodePayoutUpdated",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "payout",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodeRegistered",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "metadataURI",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OwnershipTransferred",
     "inputs": [
       {
@@ -336,7 +567,7 @@
     "name": "PricingUpdated",
     "inputs": [
       {
-        "name": "provider",
+        "name": "nodeId",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -358,104 +589,10 @@
   },
   {
     "type": "event",
-    "name": "ProviderActiveUpdated",
-    "inputs": [
-      {
-        "name": "provider",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "active",
-        "type": "bool",
-        "indexed": false,
-        "internalType": "bool"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ProviderFeeUpdated",
-    "inputs": [
-      {
-        "name": "provider",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "feeBps",
-        "type": "uint16",
-        "indexed": false,
-        "internalType": "uint16"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ProviderPayoutUpdated",
-    "inputs": [
-      {
-        "name": "provider",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "payout",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ProviderRegistered",
-    "inputs": [
-      {
-        "name": "provider",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "payout",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
-      },
-      {
-        "name": "supportsBestEffort",
-        "type": "bool",
-        "indexed": false,
-        "internalType": "bool"
-      },
-      {
-        "name": "supportsTEE",
-        "type": "bool",
-        "indexed": false,
-        "internalType": "bool"
-      },
-      {
-        "name": "metadataURI",
-        "type": "string",
-        "indexed": false,
-        "internalType": "string"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "TEEProofSet",
     "inputs": [
       {
-        "name": "provider",
+        "name": "nodeId",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -476,17 +613,27 @@
   },
   {
     "type": "error",
+    "name": "NodeAlreadyRegistered",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NodeNotRegistered",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotAttestationService",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "NotOwner",
+    "name": "NotNodeOperator",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "ProviderNotRegistered",
+    "name": "NotOwner",
     "inputs": []
   },
   {
