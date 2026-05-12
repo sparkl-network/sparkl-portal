@@ -16,6 +16,11 @@
         "name": "usdc_",
         "type": "address",
         "internalType": "contract IERC20"
+      },
+      {
+        "name": "nativeDotDecimals_",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "stateMutability": "nonpayable"
@@ -114,6 +119,19 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nativeDotDecimals",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "stateMutability": "view"
@@ -660,6 +678,11 @@
   {
     "type": "error",
     "name": "BadAmount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadNativeDecimals",
     "inputs": []
   },
   {

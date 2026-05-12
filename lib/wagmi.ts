@@ -1,7 +1,16 @@
 import { getDefaultConfig } from "@rainbow-me/rainbowkit";
 import { http } from "wagmi";
 
-import { getActiveChainConfig, hubChainFromConfig } from "@/lib/chains";
+import {
+  getActiveChainConfig,
+  hubChainFromConfig,
+  walletFacingRpcUrl,
+} from "@/lib/chains";
+
+function useSameOriginRpcProxy(): boolean {
+  const v = process.env.NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY;
+  return v === "1" || v === "true";
+}
 
 export function getHubWagmiConfig() {
   const cfg = getActiveChainConfig();
@@ -13,13 +22,23 @@ export function getHubWagmiConfig() {
     );
   }
 
+  const transportUrl = useSameOriginRpcProxy()
+    ? walletFacingRpcUrl(cfg)
+    : cfg.rpcUrl;
+
+  if (useSameOriginRpcProxy() && !process.env.RPC_PROXY_TARGET?.trim()) {
+    console.warn(
+      "[wagmi] NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY is set but RPC_PROXY_TARGET is missing; /api/rpc may 501.",
+    );
+  }
+
   return getDefaultConfig({
     appName: "Sparkl Portal",
     projectId,
     chains: [chain],
     transports: {
-      [chain.id]: http(cfg.rpcUrl),
+      [chain.id]: http(transportUrl),
     },
-    ssr: true,
+    ssr: false,
   });
 }

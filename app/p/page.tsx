@@ -1,16 +1,22 @@
-import Link from "next/link";
+"use client";
+
+import { Box, VStack } from "@coinbase/cds-web/layout";
+import { Link, Text } from "@coinbase/cds-web/typography";
+import NextLink from "next/link";
 
 export default function ProviderHome() {
   return (
-    <>
-      <p style={{ marginBottom: "1rem", opacity: 0.85 }}>
-        <Link href="/">← Home</Link>
-      </p>
-      <h1 style={{ marginBottom: "0.5rem" }}>Provider</h1>
-      <p style={{ opacity: 0.85 }}>
-        Use <code>lib/evm/registry.ts</code> and <code>lib/evm/escrow.ts</code>{" "}
-        from client components with wagmi&apos;s public and wallet clients.
-      </p>
-    </>
+    <Box paddingX={3} paddingY={3}>
+      <VStack gap={2}>
+        <Link as={NextLink} href="/" font="body" underline={false}>
+          ← Home
+        </Link>
+        <Text font="title2">Provider</Text>
+        <Text font="body" color="fgMuted">
+          Use lib/evm/registry.ts and lib/evm/escrow.ts from client components
+          with wagmi&apos;s public and wallet clients.
+        </Text>
+      </VStack>
+    </Box>
   );
 }

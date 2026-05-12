@@ -1,16 +1,25 @@
-import Link from "next/link";
+"use client";
+
+import { Box, VStack } from "@coinbase/cds-web/layout";
+import { Link, Text } from "@coinbase/cds-web/typography";
+import NextLink from "next/link";
 
 export default function ConsumerHome() {
   return (
-    <>
-      <p style={{ marginBottom: "1rem", opacity: 0.85 }}>
-        <Link href="/">← Home</Link>
-      </p>
-      <h1 style={{ marginBottom: "0.5rem" }}>Consumer</h1>
-      <p style={{ opacity: 0.85 }}>
-        Escrow helpers live in <code>lib/evm/escrow.ts</code>; registry reads
-        in <code>lib/evm/registry.ts</code>.
-      </p>
-    </>
+    <Box paddingX={3} paddingY={3}>
+      <VStack gap={2}>
+        <Link as={NextLink} href="/" font="body" underline={false}>
+          ← Home
+        </Link>
+        <Text font="title2">Consumer</Text>
+        <Text font="body" color="fgMuted">
+          Escrow helpers live in lib/evm/escrow.ts; registry reads in
+          lib/evm/registry.ts.
+        </Text>
+        <Link as={NextLink} href="/c/fund" font="body" underline={false}>
+          Fund escrow balance →
+        </Link>
+      </VStack>
+    </Box>
   );
 }

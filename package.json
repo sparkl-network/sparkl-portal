@@ -10,8 +10,11 @@
     "abis:sync": "bash scripts/sync-abis.sh"
   },
   "dependencies": {
+    "@coinbase/cds-icons": "5.16.0",
+    "@coinbase/cds-web": "8.70.0",
     "@rainbow-me/rainbowkit": "2.2.11",
     "@tanstack/react-query": "5.100.10",
+    "framer-motion": "^10",
     "next": "16.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",

@@ -1,3 +1,7 @@
+import "@coinbase/cds-icons/fonts/web/icon-font.css";
+import "@coinbase/cds-web/globalStyles";
+import "@coinbase/cds-web/defaultFontStyles";
+
 import type { Metadata } from "next";
 
 import "./globals.css";
