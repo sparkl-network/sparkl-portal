@@ -18,7 +18,7 @@ const METHOD_SELECTORS: Record<string, string> = {
   "0x2e1a7d4d": "withdraw(uint256)",
   "0x6cddf290": "depositDot()",
   "0x100ee50f": "withdrawDot(uint256)",
-  "0x2b691065": "openSession(address,uint8,uint256)",
+  "0xd1660c9a": "openSession(bytes32,uint8,uint256)",
   "0x80d698dc": "getDotBalances(address)",
 };
 

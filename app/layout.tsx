@@ -9,7 +9,7 @@ import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "Sparkl Portal",
-  description: "Hub EVM provider and consumer portal",
+  description: "Hub EVM portal — nodes, operator accounts, and consumer flows",
 };
 
 export default function RootLayout({

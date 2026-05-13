@@ -12,14 +12,6 @@ export default function Home() {
         <Text font="body" color="fgMuted">
           Hub EVM portal — connect your wallet from the toolbar.
         </Text>
-        <HStack gap={3}>
-          <Link as={NextLink} href="/p" font="body" underline={false}>
-            Provider (/p)
-          </Link>
-          <Link as={NextLink} href="/c" font="body" underline={false}>
-            Consumer (/c)
-          </Link>
-        </HStack>
       </VStack>
     </Box>
   );

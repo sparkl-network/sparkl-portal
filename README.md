@@ -1,6 +1,8 @@
 # Sparkl Portal
 
-Standalone Next.js app for Hub EVM provider (`/p`) and consumer (`/c`) flows. On-chain contracts and Foundry tooling live in the sibling repo **`sparkl-solo`** (default path `~/sparkl-solo`).
+Standalone Next.js app for Hub EVM **node operator** (`/node`), **provider directory** (`/provider`), and **consumer** (`/c`) flows. On-chain contracts and Foundry tooling live in the sibling repo **`sparkl-solo`** (default path `~/sparkl-solo`).
+
+Registry **`nodeId`** values are **`bytes32`** on chain (e.g. Substrate **PeerId** hash). The UI accepts full 32-byte hex or a 20-byte EVM address (padded to `bytes32` for local dev); see **`lib/nodeId.ts`**.
 
 ## Prerequisites
 
@@ -37,6 +39,21 @@ yarn dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## App routes
+
+| Path | Purpose |
+|------|---------|
+| **`/`** | Home links |
+| **`/node`** | Your nodes as operator (`operatorNodes` + `getProvider` per id) |
+| **`/node/register`** | Register a new `bytes32` node id; redirects to **`/node/[nodeId]`** |
+| **`/node/[nodeId]`** | Node detail + operator controls (payout, metadata, pricing, active) |
+| **`/node/[nodeId]/sessions`** | Dev view: `SessionOpened` logs + `getSession` for this node id |
+| **`/provider`** | Directory of operators derived from **`NodeRegistered`** logs; stats via **`operatorNodes`** + **`getProvider`** |
+| **`/provider/[operator]`** | Operator detail: all nodes, pricing, TEE flags, metadata (**region** via **`/api/provider-metadata`** when URI is HTTP(S)) |
+| **`/c`**, **`/c/fund`** | Consumer hub + escrow funding |
+
+The legacy **`/p`** tree was removed; bookmarks should use **`/node`** and **`/provider`**.
+
 ## Coinbase Design System (CDS)
 
 The portal shell (`AppToolbar`) and consumer funding UI use **[Coinbase CDS Web](https://cds.coinbase.com/getting-started/installation/)**: **`@coinbase/cds-web`**, **`@coinbase/cds-icons`**, and **`framer-motion@^10`**. The App Router root layout imports the CDS icon font stylesheet plus **`globalStyles`** and **`defaultFontStyles`** before local globals.
@@ -63,6 +80,16 @@ This runs **`scripts/sync-abis.sh`**, which uses **`SPARKL_SOLO`** (default **`$
 |--------|------|
 | **`lib/chains.ts`** | Resolves active Hub env → RPC, chain id, native currency (env), registry / escrow addresses |
 | **`lib/wagmi.ts`** | RainbowKit + wagmi config |
-| **`lib/evm/registry.ts`** | `ProviderRegistry` reads/writes + `getAllProviders` (logs or dev address list) |
-| **`lib/evm/escrow.ts`** | `SettlementEscrow` balances, deposits, sessions, settle helpers |
+| **`lib/nodeId.ts`** | Parse `bytes32` / padded-address node id input; default id from operator wallet |
+| **`lib/providerWatchlist.ts`** | Local portfolio extras keyed by chain + owner (browser) |
+| **`lib/evm/registry.ts`** | **`ProviderRegistry`**: reads/writes; **`getAllProviders`** / **`getRegisteredOperatorAddresses`** / **`getOperatorDirectoryEntries`** / **`getOperatorNodeDetailRows`** / **`getOperatorNodes`**; dev list via **`NEXT_PUBLIC_DEV_PROVIDER_ADDRESSES`** |
+| **`lib/evm/escrow.ts`** | **`SettlementEscrow`**: balances, deposits, **`openSession(bytes32,…)`**, sessions, **`getSessionIdsForNode`** (log scan), settle helpers |
 | **`lib/evm/dotUnits.ts`** | Native ↔ internal DOT (18) using a configurable native decimal count |
+
+### API routes (Next.js)
+
+| Route | Role |
+|-------|------|
+| **`/api/rpc`** | Optional same-origin JSON-RPC proxy to the hub node |
+| **`/api/provider-node-probe`** | Dev helper: HTTP probe against an inference node |
+| **`/api/provider-metadata`** | Server-side fetch of provider metadata JSON (**`region`** / **`geo.region`**) to avoid browser CORS |

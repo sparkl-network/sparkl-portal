@@ -3,13 +3,13 @@
 import { Banner } from "@coinbase/cds-web/banner";
 import { Button } from "@coinbase/cds-web/buttons";
 import { Checkbox, TextInput } from "@coinbase/cds-web/controls";
-import { Box, HStack, VStack } from "@coinbase/cds-web/layout";
+import { Box, VStack } from "@coinbase/cds-web/layout";
 import { Link, Text } from "@coinbase/cds-web/typography";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, startTransition, useState } from "react";
-import { type Address, getAddress, isAddress } from "viem";
+import { type Address, type Hex, getAddress, isAddress } from "viem";
 import { waitForTransactionReceipt } from "viem/actions";
 import {
   useAccount,
@@ -20,9 +20,9 @@ import {
 
 import { ZERO_ADDRESS } from "@/lib/chains";
 import { getProvider, registerNode } from "@/lib/evm/registry";
-import {
-  addProviderToWatchlist,
-} from "@/lib/providerWatchlist";
+import { classifyNodeIdInput, nodeDetailHrefFromRegistration, type NodeIdInputKind } from "@/lib/nodeId";
+import { normalizeNodeBaseUrl } from "@/lib/nodeBaseUrl";
+import { registerDebug } from "@/lib/registerDebug";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
 
 const supportsTeeEffective = false;
@@ -30,7 +30,8 @@ const supportsTeeEffective = false;
 type RegisterFormFields = {
   payoutInput: string;
   supportsBestEffort: boolean;
-  metadataUri: string;
+  supportsTEE: boolean;
+  nodeBaseUrl: string;
 };
 
 type ProbePart = {
@@ -42,6 +43,7 @@ type ProbePart = {
 
 type ProbeApiOk = {
   status: ProbePart;
+  details: ProbePart;
   models: ProbePart;
 };
 
@@ -58,6 +60,8 @@ function formatProbeBody(body: unknown): string {
 function RegisterFormBody({
   nodeIdentityInput,
   onNodeIdentityChange,
+  nodeIdInputKind,
+  resolvedNodeId,
   defaultPayoutAddress,
   fieldsDisabled,
   submitRegisterDisabled,
@@ -67,6 +71,8 @@ function RegisterFormBody({
 }: {
   nodeIdentityInput: string;
   onNodeIdentityChange: (value: string) => void;
+  nodeIdInputKind: NodeIdInputKind;
+  resolvedNodeId: Hex | null;
   defaultPayoutAddress: string;
   fieldsDisabled: boolean;
   submitRegisterDisabled: boolean;
@@ -74,13 +80,20 @@ function RegisterFormBody({
   txBusy: boolean;
   onSubmitFields: (fields: RegisterFormFields) => void;
 }) {
-  const [payoutInput, setPayoutInput] = useState(defaultPayoutAddress);
+  /** Empty initial state avoids SSR vs client mismatch when the wallet restores on load. */
+  const [payoutInput, setPayoutInput] = useState("");
   const [supportsBestEffort, setSupportsBestEffort] = useState(true);
-  const [metadataUri, setMetadataUri] = useState("");
+  const [supportsTEE, setSupportsTEE] = useState(false);
   const [nodeBaseUrl, setNodeBaseUrl] = useState("http://127.0.0.1:8787");
   const [probeLoading, setProbeLoading] = useState(false);
   const [probeResult, setProbeResult] = useState<ProbeApiOk | null>(null);
   const [probeHttpError, setProbeHttpError] = useState<string | null>(null);
+
+  useEffect(() => {
+    startTransition(() => {
+      setPayoutInput(defaultPayoutAddress);
+    });
+  }, [defaultPayoutAddress]);
 
   const probeBlocked = Boolean(successHash);
 
@@ -121,17 +134,70 @@ function RegisterFormBody({
   return (
     <VStack gap={2}>
       <TextInput
-        label="Node address (identity)"
-        placeholder="0x…"
+        label="Peer ID"
+        placeholder="12D3KooW… (from logs or GET …/details → peer_id)"
         value={nodeIdentityInput}
         onChange={(e) => onNodeIdentityChange(e.target.value)}
         disabled={fieldsDisabled}
       />
       <Text font="caption" color="fgMuted">
-        On-chain key for this node (often the same as your operator wallet). Use a
-        different address to register another node while staying connected with the
-        same operator account.
+        Use the libp2p peer id printed when your node starts, or the{" "}
+        <Text as="span" font="caption" mono>
+          peer_id
+        </Text>{" "}
+        field from{" "}
+        <Text as="span" font="caption" mono>
+          GET …/details
+        </Text>{" "}
+        on your provider base URL (below). It is converted to the on-chain{" "}
+        <Text as="span" font="caption" mono>
+          bytes32
+        </Text>{" "}
+        shown below. Advanced: paste a full 32-byte hex key or an Ethereum
+        address (right-padded), for tests or non-libp2p setups.
       </Text>
+
+      {resolvedNodeId ? (
+        <Box
+          width="100%"
+          padding={2}
+          bordered
+          borderColor="bgLineHeavy"
+          style={{ borderRadius: 8 }}
+        >
+          <Text font="caption" color="fgMuted">
+            On-chain registry key (bytes32)
+          </Text>
+          <Text font="caption" mono tabularNumbers style={{ wordBreak: "break-all" }}>
+            {resolvedNodeId}
+          </Text>
+          {nodeIdInputKind === "peer_id" ? (
+            <Text font="caption" color="fgMuted">
+              = keccak256 over the decoded peer id multihash (same binary encoding
+              as libp2p’s peer id bytes).
+            </Text>
+          ) : null}
+          {nodeIdInputKind === "address" ? (
+            <Text font="caption" color="fgMuted">
+              = your EVM address padded to 32 bytes (legacy dev / Foundry style).
+            </Text>
+          ) : null}
+          {nodeIdInputKind === "hex32" ? (
+            <Text font="caption" color="fgMuted">
+              = raw bytes32 from your paste.
+            </Text>
+          ) : null}
+        </Box>
+      ) : nodeIdentityInput.trim() ? (
+        <Text font="caption" style={{ color: "#b91c1c" }}>
+          Not recognized as a peer id (
+          <Text as="span" font="caption" mono>
+            12D3…
+          </Text>{" "}
+          base58), 0x + 64 hex, or an Ethereum address — check for typos or
+          spaces.
+        </Text>
+      ) : null}
 
       <TextInput
         label="Payout address"
@@ -151,29 +217,46 @@ function RegisterFormBody({
       </Checkbox>
 
       <VStack gap={1} alignItems="flex-start">
-        <Checkbox checked={false} disabled value="tee" onChange={() => {}}>
+        <Checkbox
+          checked={supportsTEE}
+          onChange={(e) => setSupportsTEE(e.target.checked)}
+          value="tee"
+          disabled={fieldsDisabled || !supportsTeeEffective}
+        >
           Supports TEE
         </Checkbox>
         <Text font="caption" color="fgMuted">
-          TEE registration is disabled in early development builds.
+          {supportsTeeEffective
+            ? "TEE tier can be advertised when your deployment verifies attestations."
+            : "TEE is disabled in this build; the transaction sends supportsTEE = false."}
         </Text>
       </VStack>
 
-      <TextInput
-        label="Metadata URI"
-        placeholder="https://…/metadata.json or ipfs://…"
-        value={metadataUri}
-        onChange={(e) => setMetadataUri(e.target.value)}
-        disabled={fieldsDisabled}
-      />
-      <Text font="caption" color="fgMuted">
-        Public URI for provider metadata (JSON), e.g. a static HTTPS URL to a
-        JSON document or an{" "}
-        <Text as="span" font="caption" mono>
-          ipfs://…
-        </Text>{" "}
-        link. Can be empty for local testing if your deployment allows it.
+      <Text font="label2" color="fgMuted">
+        Node base URL
       </Text>
+      <Text font="caption" color="fgMuted">
+        HTTP(S) origin only — stored on-chain and must serve{" "}
+        <Text as="span" font="caption" mono>
+          /status
+        </Text>
+        ,{" "}
+        <Text as="span" font="caption" mono>
+          /details
+        </Text>
+        , and{" "}
+        <Text as="span" font="caption" mono>
+          /v1/models
+        </Text>
+        .
+      </Text>
+      <TextInput
+        label="Provider base URL"
+        placeholder="http://127.0.0.1:8787"
+        value={nodeBaseUrl}
+        onChange={(e) => setNodeBaseUrl(e.target.value)}
+        disabled={probeBlocked}
+      />
 
       <Text font="label2" color="fgMuted">
         Test inference node (Sparkl)
@@ -182,24 +265,17 @@ function RegisterFormBody({
         Calls{" "}
         <Text as="span" font="caption" mono>
           GET /status
-        </Text>{" "}
-        and{" "}
+        </Text>
+        ,{" "}
         <Text as="span" font="caption" mono>
-          GET /v1/models
-        </Text>{" "}
-        on your node via this app (localhost hosts only unless{" "}
+          /details
+        </Text>
+        , and{" "}
         <Text as="span" font="caption" mono>
-          PROVIDER_NODE_PROBE_HOSTS
+          /v1/models
         </Text>{" "}
-        is set).
+        on your node via this app (server-side GETs from the portal host).
       </Text>
-      <TextInput
-        label="Node base URL"
-        placeholder="http://127.0.0.1:8787"
-        value={nodeBaseUrl}
-        onChange={(e) => setNodeBaseUrl(e.target.value)}
-        disabled={probeBlocked}
-      />
       <Button
         variant="secondary"
         disabled={probeBlocked || probeLoading || !nodeBaseUrl.trim()}
@@ -248,6 +324,29 @@ function RegisterFormBody({
           </VStack>
           <VStack gap={1} alignItems="flex-start" width="100%">
             <Text font="label2" color="fgMuted">
+              Details (/details)
+            </Text>
+            <Text font="caption" color="fgMuted">
+              HTTP {probeResult.details.httpStatus}{" "}
+              {probeResult.details.ok ? "OK" : "non-OK"}
+              {probeResult.details.error
+                ? ` — ${probeResult.details.error}`
+                : ""}
+            </Text>
+            <Box
+              width="100%"
+              padding={2}
+              bordered
+              borderRadius={400}
+              style={{ overflow: "auto", maxHeight: 220 }}
+            >
+              <Text font="caption" mono tabularNumbers style={{ whiteSpace: "pre-wrap" }}>
+                {formatProbeBody(probeResult.details.body)}
+              </Text>
+            </Box>
+          </VStack>
+          <VStack gap={1} alignItems="flex-start" width="100%">
+            <Text font="label2" color="fgMuted">
               Models (/v1/models)
             </Text>
             <Text font="caption" color="fgMuted">
@@ -273,92 +372,32 @@ function RegisterFormBody({
       ) : null}
 
       <Button
+        type="button"
         variant="primary"
         disabled={submitRegisterDisabled || Boolean(successHash)}
         loading={txBusy}
-        onClick={() =>
+        onClick={() => {
+          registerDebug("Register on-chain clicked", {
+            submitRegisterDisabled,
+            successHash,
+            fieldsDisabled,
+            peerIdFieldLength: nodeIdentityInput.trim().length,
+            hasResolvedNodeId: Boolean(resolvedNodeId),
+            payoutFieldLength: payoutInput.trim().length,
+            nodeBaseUrlLength: nodeBaseUrl.trim().length,
+            supportsBestEffort,
+            supportsTEEEffective: supportsTeeEffective && supportsTEE,
+          });
           onSubmitFields({
             payoutInput,
             supportsBestEffort,
-            metadataUri,
-          })
-        }
+            supportsTEE: supportsTeeEffective && supportsTEE,
+            nodeBaseUrl,
+          });
+        }}
       >
         Register on-chain
       </Button>
-    </VStack>
-  );
-}
-
-function PortfolioTrackSection({
-  owner,
-  hubChainId,
-  chainReady,
-  registryUnset,
-}: {
-  owner: Address;
-  hubChainId: number;
-  chainReady: boolean;
-  registryUnset: boolean;
-}) {
-  const queryClient = useQueryClient();
-  const [input, setInput] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
-
-  if (!chainReady || registryUnset) return null;
-
-  function add() {
-    setMsg(null);
-    const s = input.trim();
-    if (!s || !isAddress(s)) {
-      setMsg("Enter a valid operator address (0x + 40 hex).");
-      return;
-    }
-    let op: Address;
-    try {
-      op = getAddress(s);
-    } catch {
-      setMsg("Invalid address checksum or format.");
-      return;
-    }
-    const r = addProviderToWatchlist(owner, hubChainId, op);
-    if (!r.ok) {
-      setMsg(r.reason);
-      return;
-    }
-    setInput("");
-    void queryClient.invalidateQueries({ queryKey: ["providersLinked"] });
-  }
-
-  return (
-    <VStack gap={2} alignItems="flex-start">
-      <Text font="label2" color="fgMuted">
-        Portfolio: more nodes for this wallet
-      </Text>
-      <Text font="caption" color="fgMuted">
-        On-chain, each node has its own identity address; your connected wallet is
-        the operator for nodes you register. You can use different node addresses
-        with the same operator and payout. To track others without registering, add
-        them below.
-      </Text>
-      <HStack gap={2} style={{ flexWrap: "wrap", width: "100%" }} alignItems="flex-end">
-        <Box style={{ flex: "1 1 220px", minWidth: 0 }}>
-          <TextInput
-            label="Operator address to track"
-            placeholder="0x…"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-          />
-        </Box>
-        <Button variant="secondary" compact onClick={() => add()}>
-          Add to portfolio
-        </Button>
-      </HStack>
-      {msg ? (
-        <Text font="caption" color="fgMuted">
-          {msg}
-        </Text>
-      ) : null}
     </VStack>
   );
 }
@@ -368,9 +407,13 @@ export default function ProviderRegisterPage() {
   const queryClient = useQueryClient();
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
   const { hubConfig, configError } = useHubChainConfig();
+  const publicClient = usePublicClient({
+    chainId: hubConfig?.chainId,
+  });
+  const { data: walletClient, error: walletClientError } = useWalletClient({
+    chainId: hubConfig?.chainId,
+  });
 
   const [txBusy, setTxBusy] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
@@ -378,23 +421,19 @@ export default function ProviderRegisterPage() {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [nodeIdentityInput, setNodeIdentityInput] = useState("");
 
-  useEffect(() => {
-    if (address) {
-      startTransition(() => {
-        setNodeIdentityInput(address);
-      });
-    }
-  }, [address]);
+  const { kind: nodeIdInputKind, nodeId: resolvedNodeId } = useMemo(
+    () => classifyNodeIdInput(nodeIdentityInput),
+    [nodeIdentityInput],
+  );
 
-  const resolvedNodeId = useMemo((): Address | null => {
-    const s = nodeIdentityInput.trim();
-    if (!s || !isAddress(s)) return null;
-    try {
-      return getAddress(s);
-    } catch {
-      return null;
-    }
-  }, [nodeIdentityInput]);
+  const resolvedNodePageHref = useMemo(() => {
+    if (!resolvedNodeId) return "/node";
+    return nodeDetailHrefFromRegistration({
+      kind: nodeIdInputKind,
+      nodeIdHex: resolvedNodeId,
+      rawIdentityInput: nodeIdentityInput,
+    });
+  }, [resolvedNodeId, nodeIdInputKind, nodeIdentityInput]);
 
   const chainReady = Boolean(
     isConnected &&
@@ -440,14 +479,6 @@ export default function ProviderRegisterPage() {
     ),
   });
 
-  useEffect(() => {
-    if (!successHash) return;
-    const id = setTimeout(() => {
-      router.push("/p");
-    }, 2500);
-    return () => clearTimeout(id);
-  }, [successHash, router]);
-
   function parsePayout(raw: string): Address | null {
     const s = raw.trim();
     if (!s) return null;
@@ -464,22 +495,53 @@ export default function ProviderRegisterPage() {
       setValidationError(null);
       setTxError(null);
       const nodeId = resolvedNodeId;
+      registerDebug("submitRegistration: start", {
+        resolvedNodeId,
+        chainReady,
+        isConnected,
+        chainId,
+        hubChainId: hubConfig?.chainId,
+        hasWalletClient: Boolean(walletClient),
+        walletClientError: walletClientError
+          ? walletClientError.message
+          : undefined,
+        hasPublicClient: Boolean(publicClient),
+        registryUnset,
+        registered,
+        registrationLoading,
+        registryAddress: hubConfig?.providerRegistryAddress,
+      });
       if (!nodeId) {
+        registerDebug("submitRegistration: abort — invalid node id");
         setValidationError(
-          "Enter a valid node address (0x + 40 hex chars).",
+          "Enter a valid peer id (12D3Koo… from your node), 0x + 64 hex bytes32, or an Ethereum address.",
         );
         return;
       }
       const payout = parsePayout(fields.payoutInput);
       if (!payout) {
+        registerDebug("submitRegistration: abort — invalid payout", {
+          payoutTrimLength: fields.payoutInput.trim().length,
+        });
         setValidationError(
           "Enter a valid payout address (0x + 40 hex chars).",
         );
         return;
       }
-      if (!fields.supportsBestEffort && !supportsTeeEffective) {
+      if (!fields.supportsBestEffort && !fields.supportsTEE) {
+        registerDebug("submitRegistration: abort — no tier enabled");
         setValidationError(
-          "Enable at least one security tier (Best Effort, or TEE when available).",
+          "Enable at least one security tier (Best Effort and/or TEE).",
+        );
+        return;
+      }
+      const nodeBaseNormalized = normalizeNodeBaseUrl(fields.nodeBaseUrl);
+      if (!nodeBaseNormalized) {
+        registerDebug("submitRegistration: abort — invalid base URL", {
+          nodeBaseRaw: fields.nodeBaseUrl.slice(0, 80),
+        });
+        setValidationError(
+          "Enter a valid node base URL (http:// or https:// host, optionally with port). It is stored on-chain and must expose /status, /details, and /v1/models.",
         );
         return;
       }
@@ -489,16 +551,38 @@ export default function ProviderRegisterPage() {
         !chainReady ||
         registryUnset ||
         !publicClient
-      )
-        return;
-
-      if (registered) {
+      ) {
+        const missing: string[] = [];
+        if (!walletClient) missing.push("walletClient");
+        if (!hubConfig) missing.push("hubConfig");
+        if (!chainReady) missing.push("chainReady (connect + correct network)");
+        if (registryUnset) missing.push("registry address");
+        if (!publicClient) missing.push("publicClient (RPC)");
+        registerDebug("submitRegistration: abort — env not ready", {
+          missing,
+          walletClientError: walletClientError?.message,
+        });
         setValidationError(
-          "This node address is already registered. Change the node identity above, open Settings for that node, or track another operator in your portfolio.",
+          missing.includes("walletClient")
+            ? `Wallet is not ready to sign${walletClientError ? ` (${walletClientError.message})` : ""}. Try reconnecting, or set NEXT_PUBLIC_DEBUG_REGISTER=1 and check the console for [sparkl:register].`
+            : `Cannot register yet: missing ${missing.join(", ")}. Check banners above or enable NEXT_PUBLIC_DEBUG_REGISTER=1 for console details.`,
         );
         return;
       }
 
+      if (registered) {
+        registerDebug("submitRegistration: abort — already registered");
+        setValidationError(
+          "This node ID is already registered. Change the peer id above or open the node page to manage it.",
+        );
+        return;
+      }
+
+      registerDebug("submitRegistration: calling registerNode", {
+        nodeId,
+        payout,
+        metadataURI: nodeBaseNormalized,
+      });
       setTxBusy(true);
       setSuccessHash(null);
       try {
@@ -509,22 +593,36 @@ export default function ProviderRegisterPage() {
             nodeId,
             payout,
             supportsBestEffort: fields.supportsBestEffort,
-            supportsTEE: supportsTeeEffective,
-            metadataURI: fields.metadataUri.trim(),
+            supportsTEE: fields.supportsTEE,
+            metadataURI: nodeBaseNormalized,
           },
         );
         await waitForTransactionReceipt(publicClient, { hash });
         setSuccessHash(hash);
-        await queryClient.invalidateQueries({
-          queryKey: ["providerDashboard"],
-        });
+        registerDebug("submitRegistration: confirmed", { hash });
         await queryClient.invalidateQueries({
           queryKey: ["providerRegistered"],
         });
         await queryClient.invalidateQueries({
-          queryKey: ["providersLinked"],
+          queryKey: ["allRegistryNodes"],
         });
+        await queryClient.invalidateQueries({
+          queryKey: ["operatorNodesPage"],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["nodeDetail"],
+        });
+        router.push(
+          nodeDetailHrefFromRegistration({
+            kind: nodeIdInputKind,
+            nodeIdHex: nodeId,
+            rawIdentityInput: nodeIdentityInput,
+          }),
+        );
       } catch (e) {
+        registerDebug("submitRegistration: registerNode failed", {
+          error: e instanceof Error ? e.message : String(e),
+        });
         setTxError(
           e instanceof Error ? e.message : "Registration transaction failed",
         );
@@ -540,7 +638,14 @@ export default function ProviderRegisterPage() {
       registered,
       registryUnset,
       resolvedNodeId,
+      nodeIdInputKind,
+      nodeIdentityInput,
       walletClient,
+      walletClientError,
+      router,
+      isConnected,
+      chainId,
+      registrationLoading,
     ],
   );
 
@@ -549,28 +654,42 @@ export default function ProviderRegisterPage() {
     registryUnset ||
     txBusy ||
     !walletClient ||
-    !hubConfig ||
-    registrationLoading;
+    !hubConfig;
 
   const fieldsDisabled = walletRegistryGate || Boolean(registered);
   const submitRegisterDisabled =
     walletRegistryGate || Boolean(registered) || Boolean(successHash);
 
-  const formKey = address ?? "disconnected";
   const defaultPayout = address ?? "";
 
   return (
     <Box paddingX={3} paddingY={3}>
       <VStack gap={3}>
-        <Link as={NextLink} href="/p" font="body" underline={false}>
-          ← Provider
+        <Link as={NextLink} href="/node" font="body" underline={false}>
+          ← Nodes
         </Link>
 
         <Text font="title2">Register node</Text>
         <Text font="body" color="fgMuted">
-          Register a node in ProviderRegistry: the node address is its on-chain
-          identity; your connected wallet becomes the operator. Pricing can be set
-          afterward from the node dashboard.
+          Register in{" "}
+          <Text as="span" font="body" mono>
+            ProviderRegistry
+          </Text>{" "}
+          using the peer id string from your node logs or the{" "}
+          <Text as="span" font="body" mono>
+            peer_id
+          </Text>{" "}
+          field in{" "}
+          <Text as="span" font="body" mono>
+            GET …/details
+          </Text>
+          . Your connected wallet becomes the operator. The portal derives the
+          on-chain{" "}
+          <Text as="span" font="body" mono>
+            bytes32
+          </Text>{" "}
+          automatically. After registration, use the node page to update payout,
+          base URL, and listing status.
         </Text>
 
         {configError ? (
@@ -637,14 +756,17 @@ export default function ProviderRegisterPage() {
             title="This node is already registered"
           >
             <Text font="body">
-              This node address is already on-chain. Use{" "}
-              <Link as={NextLink} href="/p/settings" font="body" underline>
-                Settings
+              This node ID is already on-chain. Use{" "}
+              <Link
+                as={NextLink}
+                href={resolvedNodePageHref}
+                font="body"
+                underline
+              >
+                Node page
               </Link>{" "}
-              to update payout or status when your wallet is the operator, or enter
-              a different node address above to register another node with the same
-              operator key. You can still track others from the portfolio section
-              below.
+              to manage this ID when your wallet is the operator, or enter a
+              different peer id above.
             </Text>
           </Banner>
         ) : null}
@@ -662,7 +784,7 @@ export default function ProviderRegisterPage() {
                 <Text as="span" font="body" mono tabularNumbers>
                   {successHash}
                 </Text>
-                . Redirecting to the provider dashboard…
+                . Redirecting to the node page…
               </Text>
             </VStack>
           </Banner>
@@ -691,9 +813,10 @@ export default function ProviderRegisterPage() {
         ) : null}
 
         <RegisterFormBody
-          key={formKey}
           nodeIdentityInput={nodeIdentityInput}
           onNodeIdentityChange={setNodeIdentityInput}
+          nodeIdInputKind={nodeIdInputKind}
+          resolvedNodeId={resolvedNodeId}
           defaultPayoutAddress={defaultPayout}
           fieldsDisabled={fieldsDisabled}
           submitRegisterDisabled={submitRegisterDisabled}
@@ -701,15 +824,6 @@ export default function ProviderRegisterPage() {
           txBusy={txBusy}
           onSubmitFields={(fields) => void submitRegistration(fields)}
         />
-
-        {address && hubConfig && !configError ? (
-          <PortfolioTrackSection
-            owner={address}
-            hubChainId={hubConfig.chainId}
-            chainReady={chainReady}
-            registryUnset={registryUnset}
-          />
-        ) : null}
       </VStack>
     </Box>
   );

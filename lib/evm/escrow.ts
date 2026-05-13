@@ -1,9 +1,11 @@
 import {
   type Address,
+  type Hex,
   type PublicClient,
   type WalletClient,
   encodeFunctionData,
   getAddress,
+  parseAbiItem,
 } from "viem";
 
 import { settlementEscrowAbi } from "@/lib/abi";
@@ -162,7 +164,7 @@ export type OpenSessionMode = "dotBalance" | "native";
 export async function openSession(
   walletClient: WalletClient,
   escrowAddress: Address,
-  provider: Address,
+  nodeId: Hex,
   tier: SecurityTier,
   amountInternal: bigint,
   mode: OpenSessionMode,
@@ -186,7 +188,7 @@ export async function openSession(
     address: escrowAddress,
     abi: settlementEscrowAbi,
     functionName: "openSession",
-    args: [provider, tier, amountInternal],
+    args: [nodeId, tier, amountInternal],
     chain,
     account,
     value,
@@ -205,6 +207,38 @@ export async function getSession(
     args: [sessionId],
   });
   return normalizeSession(row);
+}
+
+const sessionOpenedEvent = parseAbiItem(
+  "event SessionOpened(uint256 indexed sessionId, address indexed user, bytes32 indexed nodeId, uint8 tier, uint256 lockedInternal)",
+);
+
+/** Session IDs from `SessionOpened` where `nodeId` matches (dev / explorer tooling). */
+export async function getSessionIdsForNode(
+  publicClient: PublicClient,
+  escrowAddress: Address,
+  nodeId: Hex,
+  opts?: { fromBlock?: bigint },
+): Promise<bigint[]> {
+  const fromBlockEnv = process.env.NEXT_PUBLIC_SETTLEMENT_ESCROW_FROM_BLOCK;
+  const fromBlock =
+    opts?.fromBlock ?? (fromBlockEnv ? BigInt(fromBlockEnv) : 0n);
+
+  const logs = await publicClient.getLogs({
+    address: escrowAddress,
+    event: sessionOpenedEvent,
+    args: { nodeId },
+    fromBlock,
+    toBlock: "latest",
+  });
+
+  const seen = new Map<string, bigint>();
+  for (const log of logs) {
+    const sid = log.args.sessionId;
+    if (sid === undefined) continue;
+    seen.set(sid.toString(), sid);
+  }
+  return [...seen.values()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 export async function settlePartial(
@@ -255,7 +289,7 @@ function normalizeSession(row: unknown): EscrowSession {
   if (Array.isArray(row)) {
     return {
       user: getAddress(row[0] as Address),
-      provider: getAddress(row[1] as Address),
+      nodeId: row[1] as Hex,
       tier: Number(row[2]) as SecurityTier,
       lockedInternal: row[3] as bigint,
       usageRecorded: row[4] as bigint,
@@ -267,7 +301,7 @@ function normalizeSession(row: unknown): EscrowSession {
   }
   const s = row as {
     user: Address;
-    provider: Address;
+    nodeId: Hex;
     tier: number | bigint;
     lockedInternal: bigint;
     usageRecorded: bigint;
@@ -278,7 +312,7 @@ function normalizeSession(row: unknown): EscrowSession {
   };
   return {
     user: getAddress(s.user),
-    provider: getAddress(s.provider),
+    nodeId: s.nodeId,
     tier: Number(s.tier) as SecurityTier,
     lockedInternal: s.lockedInternal,
     usageRecorded: s.usageRecorded,

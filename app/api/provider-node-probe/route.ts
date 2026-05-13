@@ -11,28 +11,6 @@ type ProbePart = {
   error?: string;
 };
 
-function parseExtraHosts(): string[] {
-  const raw = process.env.PROVIDER_NODE_PROBE_HOSTS?.trim();
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((h) => h.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function isAllowedProbeHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (
-    h === "localhost" ||
-    h === "127.0.0.1" ||
-    h === "::1" ||
-    h === "[::1]"
-  ) {
-    return true;
-  }
-  return parseExtraHosts().includes(h);
-}
-
 export async function POST(req: Request) {
   let body: unknown;
   try {
@@ -74,16 +52,6 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!isAllowedProbeHost(origin.hostname)) {
-    return NextResponse.json(
-      {
-        error:
-          "Host not allowed for probe. Use localhost or 127.0.0.1, or add hostnames via PROVIDER_NODE_PROBE_HOSTS (comma-separated).",
-      },
-      { status: 403 },
-    );
-  }
-
   const base = origin.origin;
 
   async function fetchProbe(path: string): Promise<ProbePart> {
@@ -115,7 +83,8 @@ export async function POST(req: Request) {
   }
 
   const status = await fetchProbe("/status");
+  const details = await fetchProbe("/details");
   const models = await fetchProbe("/v1/models");
 
-  return NextResponse.json({ status, models });
+  return NextResponse.json({ status, details, models });
 }
