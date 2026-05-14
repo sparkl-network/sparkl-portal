@@ -19,6 +19,7 @@ import { ZERO_ADDRESS } from "@/lib/chains";
 import type { RegisteredNodeWithOperator } from "@/lib/evm/registry";
 import { shortAddress, shortNodeId } from "@/lib/formatAddress";
 import { nodeListDetailHref } from "@/lib/nodeListRow";
+import { NodeLifecycle } from "@/lib/types";
 
 function hueFromHex(hex: string): number {
   let h = 0;
@@ -49,14 +50,29 @@ function NodeIdenticon({ nodeId }: { nodeId: Hex }) {
 function StatusDot({
   registered,
   active,
+  lifecycle,
 }: {
   registered: boolean;
   active: boolean;
+  lifecycle: NodeLifecycle | null;
 }) {
-  const color = !registered ? "#9ca3af" : active ? "#16a34a" : "#dc2626";
+  let color = "#9ca3af";
+  let title = "Waiting";
+  if (registered && lifecycle !== null) {
+    if (lifecycle === NodeLifecycle.Defunct) {
+      color = "#64748b";
+      title = "Defunct";
+    } else if (lifecycle === NodeLifecycle.Chilled) {
+      color = "#d97706";
+      title = "Chilled";
+    } else {
+      color = active ? "#16a34a" : "#dc2626";
+      title = active ? "Active" : "Inactive";
+    }
+  }
   return (
     <Box
-      title={!registered ? "Waiting" : active ? "Active" : "Inactive"}
+      title={title}
       width={6}
       height={6}
       style={{
@@ -175,9 +191,13 @@ export function NodeDirectoryTable({
             : "—";
           const statusTitle = !registered
             ? "Waiting"
-            : info.active
-              ? "Active"
-              : "Inactive";
+            : info.lifecycle === NodeLifecycle.Defunct
+              ? "Defunct"
+              : info.lifecycle === NodeLifecycle.Chilled
+                ? "Chilled"
+                : info.active
+                  ? "Active"
+                  : "Inactive";
           const capsLabel = `${info.supportsTEE ? "TEE" : "—"} · ${
             info.supportsBestEffort ? "BE" : "—"
           }`;
@@ -191,7 +211,11 @@ export function NodeDirectoryTable({
               <TableCell>
                 <HStack gap={2} alignItems="center">
                   <NodeIdenticon nodeId={nodeId} />
-                  <StatusDot registered={registered} active={info.active} />
+                  <StatusDot
+                    registered={registered}
+                    active={info.active}
+                    lifecycle={registered ? info.lifecycle : null}
+                  />
                   <VStack gap={0} alignItems="flex-start">
                     <Text
                       font="body"
@@ -211,7 +235,6 @@ export function NodeDirectoryTable({
                     href={`/operator/${op}/node`}
                     font="body"
                     mono
-                    tabularNumbers
                     underline
                     onClick={(e: MouseEvent) => e.stopPropagation()}
                   >

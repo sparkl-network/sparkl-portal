@@ -15,8 +15,10 @@ import {
   type OperatorNodeDetailRow,
   type ProviderInfo,
   type RegisteredProvider,
+  NodeLifecycle,
   SecurityTier,
 } from "@/lib/types";
+import { readOpenSessionCount } from "@/lib/evm/escrow";
 
 const nodeRegisteredEvent = parseAbiItem(
   "event NodeRegistered(bytes32 indexed nodeId, address indexed operator, string metadataURI)",
@@ -190,7 +192,13 @@ export async function getOperatorDirectoryEntries(
       const info = await getProvider(publicClient, registryAddress, nodeId);
       const registered =
         info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
-      if (registered && info.active) activeRegisteredNodeCount += 1;
+      if (
+        registered &&
+        info.lifecycle === NodeLifecycle.Active &&
+        info.active
+      ) {
+        activeRegisteredNodeCount += 1;
+      }
       if (info.supportsTEE) teeCapableNodeCount += 1;
     }
 
@@ -401,15 +409,16 @@ function walletSignerAddress(
 }
 
 /**
- * Validates ProviderRegistry deregister preconditions via `eth_call` reads so we explain
- * failures when the wallet/RPC does not return Solidity error data ("execution reverted").
+ * Operator preconditions (`nodeOperator`, `operatorNodes` membership) used before state-changing calls.
+ *
+ * @returns Current on-chain **`NodeInfo`** via {@link getProvider}.
  */
-export async function assertCanDeregisterNode(
+export async function assertOperatorForNode(
   publicClient: PublicClient,
   registryAddress: Address,
   nodeId: Hex,
   signerAddress: Address,
-): Promise<void> {
+): Promise<ProviderInfo> {
   const assigned = await publicClient.readContract({
     address: registryAddress,
     abi: providerRegistryAbi,
@@ -420,12 +429,12 @@ export async function assertCanDeregisterNode(
   const me = getAddress(signerAddress);
   if (opOnChain.toLowerCase() === ZERO_ADDRESS.toLowerCase()) {
     throw new Error(
-      "This node id has no operator on-chain (never registered, or already deregistered). Refresh the page.",
+      "This node id has no operator on-chain (never registered, or cleared after purge). Refresh the page.",
     );
   }
   if (me.toLowerCase() !== opOnChain.toLowerCase()) {
     throw new Error(
-      `Your wallet (${me}) is not the on-chain operator. Operator is ${opOnChain}. Switch to that account in your wallet to deregister.`,
+      `Your wallet (${me}) is not the on-chain operator. Operator is ${opOnChain}. Switch to that account in your wallet.`,
     );
   }
   const ids = (await publicClient.readContract({
@@ -440,9 +449,72 @@ export async function assertCanDeregisterNode(
       "This node id is not in your operatorNodes list, so the contract would revert with NodeNotRegistered. Try refreshing; if the page still shows you as operator, RPC or registry state may not match what your wallet uses.",
     );
   }
+  return getProvider(publicClient, registryAddress, nodeId);
 }
 
-export async function deregisterNode(
+/**
+ * Validates **`chillNode`**: signer is operator and lifecycle is **Active**.
+ */
+export async function assertCanChill(
+  publicClient: PublicClient,
+  registryAddress: Address,
+  nodeId: Hex,
+  signerAddress: Address,
+): Promise<void> {
+  const info = await assertOperatorForNode(
+    publicClient,
+    registryAddress,
+    nodeId,
+    signerAddress,
+  );
+  if (info.lifecycle !== NodeLifecycle.Active) {
+    throw new Error(
+      `Chill only applies while lifecycle is Active (current: ${lifecycleLabel(info.lifecycle)}). For terminal rundown, chill first — then settle open sessions — then use “Mark defunct”.`,
+    );
+  }
+}
+
+/**
+ * Validates **`markDefunct`**: operator, lifecycle **Chilled**, and escrow **`openSessionCountByNode` == 0**.
+ */
+export async function assertCanMarkDefunct(
+  publicClient: PublicClient,
+  registryAddress: Address,
+  escrowAddress: Address,
+  nodeId: Hex,
+  signerAddress: Address,
+): Promise<void> {
+  const info = await assertOperatorForNode(
+    publicClient,
+    registryAddress,
+    nodeId,
+    signerAddress,
+  );
+  if (info.lifecycle !== NodeLifecycle.Chilled) {
+    throw new Error(
+      `Mark defunct requires lifecycle Chilled (current: ${lifecycleLabel(info.lifecycle)}). Run “Chill node” first, then settle remaining escrow sessions until the open-session count reaches zero.`,
+    );
+  }
+  const open = await readOpenSessionCount(
+    publicClient,
+    escrowAddress,
+    nodeId,
+  );
+  if (open !== 0n) {
+    throw new Error(
+      `Settlement escrow still reports ${open.toString()} open session(s). Wait until they are fully settled so the on-chain counter reaches zero.`,
+    );
+  }
+}
+
+/** Human-readable **`NodeLifecycle`** for errors and UI snippets. */
+export function lifecycleLabel(l: NodeLifecycle): string {
+  if (l === NodeLifecycle.Chilled) return "Chilled";
+  if (l === NodeLifecycle.Defunct) return "Defunct";
+  return "Active";
+}
+
+export async function chillNode(
   walletClient: WalletClient,
   publicClient: PublicClient,
   registryAddress: Address,
@@ -461,7 +533,7 @@ export async function deregisterNode(
     );
   }
 
-  await assertCanDeregisterNode(
+  await assertCanChill(
     publicClient,
     registryAddress,
     nodeId,
@@ -471,7 +543,7 @@ export async function deregisterNode(
   await publicClient.simulateContract({
     address: registryAddress,
     abi: providerRegistryAbi,
-    functionName: "deregisterNode",
+    functionName: "chillNode",
     args: [nodeId],
     account,
   });
@@ -479,7 +551,53 @@ export async function deregisterNode(
   return walletClient.writeContract({
     address: registryAddress,
     abi: providerRegistryAbi,
-    functionName: "deregisterNode",
+    functionName: "chillNode",
+    args: [nodeId],
+    account,
+    chain,
+  });
+}
+
+export async function markDefunct(
+  walletClient: WalletClient,
+  publicClient: PublicClient,
+  registryAddress: Address,
+  escrowAddress: Address,
+  nodeId: Hex,
+): Promise<`0x${string}`> {
+  const account = walletClient.account;
+  if (!account) throw new Error("Wallet account unavailable");
+  const chain = walletClient.chain;
+  if (!chain) throw new Error("Wallet chain unavailable");
+
+  const signerAddress = walletSignerAddress(account);
+  const rpcChainId = publicClient.chain?.id;
+  if (rpcChainId !== undefined && rpcChainId !== chain.id) {
+    throw new Error(
+      `Wallet reports chain ${chain.id} but the app RPC is on chain ${rpcChainId}. Switch your wallet to the hub chain (id ${rpcChainId}) and try again.`,
+    );
+  }
+
+  await assertCanMarkDefunct(
+    publicClient,
+    registryAddress,
+    escrowAddress,
+    nodeId,
+    signerAddress,
+  );
+
+  await publicClient.simulateContract({
+    address: registryAddress,
+    abi: providerRegistryAbi,
+    functionName: "markDefunct",
+    args: [nodeId],
+    account,
+  });
+
+  return walletClient.writeContract({
+    address: registryAddress,
+    abi: providerRegistryAbi,
+    functionName: "markDefunct",
     args: [nodeId],
     account,
     chain,
@@ -593,6 +711,23 @@ export async function getProvidersLinkedToAccount(
   return linked.sort((a, b) => a.nodeId.localeCompare(b.nodeId));
 }
 
+function normalizeLifecycle(raw: unknown): NodeLifecycle {
+  const n =
+    typeof raw === "bigint"
+      ? Number(raw)
+      : typeof raw === "number"
+        ? raw
+        : NaN;
+  if (
+    n === NodeLifecycle.Active ||
+    n === NodeLifecycle.Chilled ||
+    n === NodeLifecycle.Defunct
+  ) {
+    return n;
+  }
+  return NodeLifecycle.Active;
+}
+
 /** Maps raw {@link getProvider} / on-chain **`NodeInfo`** (tuple or struct object) to {@link ProviderInfo}. */
 function normalizeProviderInfo(row: unknown): ProviderInfo {
   if (Array.isArray(row)) {
@@ -604,6 +739,7 @@ function normalizeProviderInfo(row: unknown): ProviderInfo {
       supportsTEE: Boolean(row[4]),
       teeReportHash: row[5] as `0x${string}`,
       metadataURI: typeof row[6] === "string" ? row[6] : "",
+      lifecycle: normalizeLifecycle(row[7]),
     };
   }
   const o = row as {
@@ -614,6 +750,7 @@ function normalizeProviderInfo(row: unknown): ProviderInfo {
     supportsTEE: boolean;
     teeReportHash: `0x${string}`;
     metadataURI: string;
+    lifecycle?: bigint | number;
   };
   return {
     payout: getAddress(o.payout),
@@ -623,5 +760,6 @@ function normalizeProviderInfo(row: unknown): ProviderInfo {
     supportsTEE: o.supportsTEE,
     teeReportHash: o.teeReportHash,
     metadataURI: o.metadataURI ?? "",
+    lifecycle: normalizeLifecycle(o.lifecycle ?? NodeLifecycle.Active),
   };
 }

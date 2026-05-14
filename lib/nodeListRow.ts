@@ -1,6 +1,5 @@
 import type { RegisteredNodeWithOperator } from "@/lib/evm/registry";
-import { normalizeNodeBaseUrl } from "@/lib/nodeBaseUrl";
-import { parseNodeIdInput } from "@/lib/nodeId";
+import { metadataUriToBaseUrl } from "@/lib/nodeBaseUrl";
 
 export type RegisteredNodeListRow = RegisteredNodeWithOperator & {
   nodeIdString: string | null;
@@ -30,13 +29,14 @@ async function mapPool<T, R>(
 }
 
 /**
- * Resolve libp2p peer id strings from each node's `/details` when metadata URI matches chain.
+ * Resolve libp2p peer id strings from each node's **`GET /identity`** when
+ * **`identity.node_id`** matches the on-chain **`bytes32`** (Hub EVM: keccak256(ed25519 pubkey)).
  */
 export async function enrichRegisteredNodesWithPeerId(
   rows: RegisteredNodeWithOperator[],
 ): Promise<RegisteredNodeListRow[]> {
   return mapPool(rows, PEER_ID_FETCH_CONCURRENCY, async (r) => {
-    const base = normalizeNodeBaseUrl(r.info.metadataURI ?? "");
+    const base = metadataUriToBaseUrl(r.info.metadataURI ?? "");
     if (!base) {
       return { ...r, nodeIdString: null };
     }
@@ -47,14 +47,18 @@ export async function enrichRegisteredNodesWithPeerId(
       if (!res.ok) {
         return { ...r, nodeIdString: null };
       }
-      const data = (await res.json()) as { peerId?: string | null };
+      const data = (await res.json()) as {
+        peerId?: string | null;
+        nodeId?: string | null;
+      };
       const peerId =
         typeof data.peerId === "string" ? data.peerId.trim() : null;
-      if (!peerId) {
+      const nodeId =
+        typeof data.nodeId === "string" ? data.nodeId.trim() : null;
+      if (!peerId || !nodeId) {
         return { ...r, nodeIdString: null };
       }
-      const parsed = parseNodeIdInput(peerId);
-      if (parsed && parsed.toLowerCase() === r.nodeId.toLowerCase()) {
+      if (nodeId.toLowerCase() === r.nodeId.toLowerCase()) {
         return { ...r, nodeIdString: peerId };
       }
       return { ...r, nodeIdString: null };
@@ -69,10 +73,7 @@ export function nodeListDetailHref(
 ): string {
   const peer = row.nodeIdString ?? null;
   if (peer) {
-    const parsed = parseNodeIdInput(peer);
-    if (parsed && parsed.toLowerCase() === row.nodeId.toLowerCase()) {
-      return `/node/${encodeURIComponent(peer)}`;
-    }
+    return `/node/${encodeURIComponent(peer)}`;
   }
   return `/node/${encodeURIComponent(row.nodeId)}`;
 }

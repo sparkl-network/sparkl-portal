@@ -1,5 +1,12 @@
 import type { Address, Hex } from "viem";
 
+/** Mirrors `NodeLifecycle` in `contracts/src/SecurityTypes.sol`. */
+export enum NodeLifecycle {
+  Active = 0,
+  Chilled = 1,
+  Defunct = 2,
+}
+
 /** Mirrors `SecurityTier` in `contracts/src/SecurityTypes.sol`. */
 export enum SecurityTier {
   BEST_EFFORT = 0,
@@ -17,8 +24,9 @@ export type ProviderInfo = {
   supportsBestEffort: boolean;
   supportsTEE: boolean;
   teeReportHash: `0x${string}`;
-  /** On-chain `metadataURI`: in this portal, the node’s HTTP(S) base URL (`/status`, `/details`, `/v1/models`). */
+  /** On-chain `metadataURI`: bare HTTP(S) origin, or JSON `{"version","baseUrl",…}` — see `parseMetadataUri`. Probed paths: `/status`, `/identity`, `/v1/models`. */
   metadataURI: string;
+  lifecycle: NodeLifecycle;
 };
 
 /** One registry node: **`nodeId`** + **`info`** (the on-chain `NodeInfo` shape above). */

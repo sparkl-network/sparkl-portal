@@ -14,7 +14,7 @@ import { Box, HStack, VStack } from "@coinbase/cds-web/layout";
 import { Link, Text } from "@coinbase/cds-web/typography";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import NextLink from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useMemo, useState, useCallback } from "react";
 import {
   getAddress,
@@ -34,11 +34,14 @@ import {
 } from "wagmi";
 
 import { ZERO_ADDRESS } from "@/lib/chains";
+import { readOpenSessionCount } from "@/lib/evm/escrow";
 import { formatTxError } from "@/lib/evm/formatTxError";
 import {
-  deregisterNode,
+  chillNode,
   getNodeOperator,
   getProvider,
+  lifecycleLabel,
+  markDefunct,
   setNodeActive,
   setNodeMetadata,
   setNodePayout,
@@ -47,8 +50,11 @@ import {
   parseNodeIdRouteSegment,
   peerIdMultihashHex,
 } from "@/lib/nodeId";
-import { normalizeNodeBaseUrl } from "@/lib/nodeBaseUrl";
-import { type ProviderInfo } from "@/lib/types";
+import {
+  metadataUriToBaseUrl,
+  normalizeNodeBaseUrl,
+} from "@/lib/nodeBaseUrl";
+import { type ProviderInfo, NodeLifecycle } from "@/lib/types";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
 
 function teeProofSubmitted(hash: `0x${string}`): boolean {
@@ -69,12 +75,14 @@ type LoadedNodeDetail = {
   info: ProviderInfo;
   operator: Address;
   isRegistered: true;
+  openSessionCount: bigint;
 };
 
 function NodeOperatorControls({
   nodeId,
   detail,
   registryAddress,
+  settlementEscrowAddress,
   controlsDisabled,
   walletClient,
   publicClient,
@@ -84,22 +92,26 @@ function NodeOperatorControls({
   nodeId: Hex;
   detail: LoadedNodeDetail;
   registryAddress: Address;
+  settlementEscrowAddress: Address;
   controlsDisabled: boolean;
   walletClient: WalletClient;
   publicClient: PublicClient;
   queryClient: QueryClient;
   refetchDetail: () => Promise<unknown>;
 }) {
-  const router = useRouter();
   const { address: connectedAddress } = useAccount();
   const [newPayoutInput, setNewPayoutInput] = useState("");
   const [newBaseUrlInput, setNewBaseUrlInput] = useState(
-    () => detail.info.metadataURI ?? "",
+    () =>
+      metadataUriToBaseUrl(detail.info.metadataURI ?? "") ??
+      detail.info.metadataURI ??
+      "",
   );
   const [txBusy, setTxBusy] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
   const [lastTxHash, setLastTxHash] = useState<string | null>(null);
-  const [deregisterModalOpen, setDeregisterModalOpen] = useState(false);
+  const [chillModalOpen, setChillModalOpen] = useState(false);
+  const [defunctModalOpen, setDefunctModalOpen] = useState(false);
 
   const { data: pendingAhead = 0 } = useQuery({
     queryKey: [
@@ -129,6 +141,16 @@ function NodeOperatorControls({
 
   const manageDisabled = controlsDisabled || txBusy;
 
+  const baseUrlSaveDisabled = useMemo(() => {
+    const next = normalizeNodeBaseUrl(newBaseUrlInput.trim());
+    const currentRaw = detail.info.metadataURI ?? "";
+    const current =
+      metadataUriToBaseUrl(currentRaw) ?? normalizeNodeBaseUrl(currentRaw);
+    if (!next) return true;
+    if (current && next === current) return true;
+    return false;
+  }, [newBaseUrlInput, detail.info.metadataURI]);
+
   const runTx = useCallback(
     async (
       send: () => Promise<`0x${string}`>,
@@ -155,6 +177,7 @@ function NodeOperatorControls({
           queryKey: ["providerDirectory"],
         });
         await queryClient.invalidateQueries({ queryKey: ["providerDetail"] });
+        await queryClient.invalidateQueries({ queryKey: ["nodeOpenSessions"] });
         await refetchDetail();
         await onSuccess?.();
       } catch (e) {
@@ -190,35 +213,65 @@ function NodeOperatorControls({
     const base = normalizeNodeBaseUrl(newBaseUrlInput);
     if (!base) {
       setTxError(
-        "Enter a valid http(s) node base URL (host, optional port — used for /status, /details, /v1/models).",
+        "Enter a valid http(s) node base URL (host, optional port — used for /status, /identity, /v1/models).",
       );
       return;
     }
-    if (base === (detail.info.metadataURI ?? "")) return;
+    const currentRaw = detail.info.metadataURI ?? "";
+    const currentBase =
+      metadataUriToBaseUrl(currentRaw) ?? normalizeNodeBaseUrl(currentRaw);
+    if (currentBase && base === currentBase) return;
     setTxError(null);
     await runTx(() =>
       setNodeMetadata(walletClient, registryAddress, nodeId, base),
     );
   }
 
-  function openDeregisterModal() {
+  const escrowConfigured =
+    settlementEscrowAddress.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
+  const canChill = detail.info.lifecycle === NodeLifecycle.Active;
+  const canMarkDefunct =
+    detail.info.lifecycle === NodeLifecycle.Chilled &&
+    escrowConfigured &&
+    detail.openSessionCount === 0n;
+
+  function openChillModal() {
     setTxError(null);
-    setDeregisterModalOpen(true);
+    setChillModalOpen(true);
   }
 
-  function closeDeregisterModal() {
+  function closeChillModal() {
     if (txBusy) return;
-    setDeregisterModalOpen(false);
+    setChillModalOpen(false);
   }
 
-  async function confirmDeregister() {
-    setDeregisterModalOpen(false);
-    await runTx(
-      () =>
-        deregisterNode(walletClient, publicClient, registryAddress, nodeId),
-      () => {
-        router.push("/node");
-      },
+  function openDefunctModal() {
+    setTxError(null);
+    setDefunctModalOpen(true);
+  }
+
+  function closeDefunctModal() {
+    if (txBusy) return;
+    setDefunctModalOpen(false);
+  }
+
+  async function confirmChill() {
+    setChillModalOpen(false);
+    await runTx(() =>
+      chillNode(walletClient, publicClient, registryAddress, nodeId),
+    );
+  }
+
+  async function confirmMarkDefunct() {
+    setDefunctModalOpen(false);
+    await runTx(() =>
+      markDefunct(
+        walletClient,
+        publicClient,
+        registryAddress,
+        settlementEscrowAddress,
+        nodeId,
+      ),
     );
   }
 
@@ -245,18 +298,19 @@ function NodeOperatorControls({
       ) : null}
 
       <Modal
-        visible={deregisterModalOpen}
-        onRequestClose={closeDeregisterModal}
-        accessibilityLabel="Confirm deregister node"
+        visible={chillModalOpen}
+        onRequestClose={closeChillModal}
+        accessibilityLabel="Confirm chill node"
         role="alertdialog"
       >
-        <ModalHeader title="Deregister this node?" />
+        <ModalHeader title="Chill this node?" />
         <ModalBody paddingX={3} paddingY={2}>
           <VStack gap={2} alignItems="flex-start">
             <Text font="body" color="fgMuted">
-              This removes the registry entry on-chain. The same node id can be
-              registered again later. Open escrow sessions are not closed for
-              you.
+              Chilling sets lifecycle to Chilled and clears listing (no new escrow
+              opens for this node id). Existing sessions can still record usage and
+              settle. See the Sparkl `contracts/README.md` (“Node rundown”) in the
+              sparkl-solo repo for semantics.
             </Text>
             <Text font="caption" color="fgMuted">
               On-chain operator
@@ -278,7 +332,7 @@ function NodeOperatorControls({
               >
                 <Text font="caption">
                   You have pending transactions—consider waiting for them to
-                  confirm before deregistering.
+                  confirm before chilling.
                 </Text>
               </Banner>
             ) : null}
@@ -289,14 +343,83 @@ function NodeOperatorControls({
             <Button
               variant="secondary"
               disabled={txBusy}
-              onClick={closeDeregisterModal}
+              onClick={closeChillModal}
             >
               Cancel
             </Button>
           }
           primaryAction={
-            <Button variant="negative" disabled={txBusy} onClick={() => void confirmDeregister()}>
-              Deregister
+            <Button
+              variant="negative"
+              disabled={txBusy}
+              onClick={() => void confirmChill()}
+            >
+              Chill node
+            </Button>
+          }
+        />
+      </Modal>
+
+      <Modal
+        visible={defunctModalOpen}
+        onRequestClose={closeDefunctModal}
+        accessibilityLabel="Confirm mark node defunct"
+        role="alertdialog"
+      >
+        <ModalHeader title="Mark node defunct?" />
+        <ModalBody paddingX={3} paddingY={2}>
+          <VStack gap={2} alignItems="flex-start">
+            <Text font="body" color="fgMuted">
+              This sets lifecycle to Defunct on-chain while keeping operator and
+              metadata for history (no delete). The registry owner can later
+              purge the id if the chain is configured for it.
+            </Text>
+            {!escrowConfigured ? (
+              <Banner
+                variant="error"
+                startIcon="warning"
+                showDismiss={false}
+                title="Escrow address missing"
+              >
+                <Text font="caption">
+                  Set NEXT_PUBLIC_SETTLEMENT_ESCROW_* in the portal env so the
+                  registry can read open session counts (and ensure
+                  setSettlementEscrow was run on deploy).
+                </Text>
+              </Banner>
+            ) : null}
+            {escrowConfigured && detail.openSessionCount > 0n ? (
+              <Banner
+                variant="warning"
+                startIcon="warning"
+                showDismiss={false}
+                title="Sessions still open"
+              >
+                <Text font="caption">
+                  Open escrow sessions for this node:{" "}
+                  {detail.openSessionCount.toString()}. Settle them first.
+                </Text>
+              </Banner>
+            ) : null}
+          </VStack>
+        </ModalBody>
+        <ModalFooter
+          secondaryAction={
+            <Button
+              variant="secondary"
+              disabled={txBusy}
+              onClick={closeDefunctModal}
+            >
+              Cancel
+            </Button>
+          }
+          primaryAction={
+            <Button
+              variant="negative"
+              disabled={txBusy || !canMarkDefunct}
+              onClick={() => void confirmMarkDefunct()}
+            >
+              Mark defunct
             </Button>
           }
         />
@@ -330,9 +453,18 @@ function NodeOperatorControls({
 
       <VStack gap={1} alignItems="flex-start">
         <Text font="label2">Listing status</Text>
+        {detail.info.lifecycle !== NodeLifecycle.Active ? (
+          <Text font="caption" color="fgMuted">
+            While Chilled or Defunct you cannot toggle listing alone — chill already
+            forces inactive; settling and mark defunct control the rundown.
+          </Text>
+        ) : null}
         <Switch
           checked={detail.info.active}
-          disabled={manageDisabled}
+          disabled={
+            manageDisabled ||
+            detail.info.lifecycle !== NodeLifecycle.Active
+          }
           value="active"
           onChange={(e) => void handleActiveToggle(e.target.checked)}
           accessibilityLabel="Node active on-chain"
@@ -368,13 +500,17 @@ function NodeOperatorControls({
       <VStack gap={2}>
         <Text font="label2">Node base URL</Text>
         <Text font="caption" color="fgMuted">
-          HTTP(S) origin stored on-chain; your process should serve{" "}
+          HTTP(S) origin (or JSON metadata with{" "}
+          <Text as="span" font="caption" mono>
+            baseUrl
+          </Text>
+          ) stored on-chain; your process should serve{" "}
           <Text as="span" font="caption" mono>
             /status
           </Text>
           ,{" "}
           <Text as="span" font="caption" mono>
-            /details
+            /identity
           </Text>
           ,{" "}
           <Text as="span" font="caption" mono>
@@ -391,10 +527,7 @@ function NodeOperatorControls({
         />
         <Button
           variant="primary"
-          disabled={
-            manageDisabled ||
-            newBaseUrlInput.trim() === (detail.info.metadataURI ?? "")
-          }
+          disabled={manageDisabled || baseUrlSaveDisabled}
           loading={txBusy}
           onClick={() => void handleBaseUrlUpdate()}
         >
@@ -404,29 +537,91 @@ function NodeOperatorControls({
 
       <VStack gap={2}>
         <Text font="label2" color="fgMuted">
-          Danger zone
+          Rundown (chill → defunct)
         </Text>
+        <Text font="caption" color="fgMuted">
+          Lifecycle is{" "}
+          <Text as="span" font="caption">
+            {lifecycleLabel(detail.info.lifecycle)}
+          </Text>
+          . Escrow sessions still open on this node id:{" "}
+          {!escrowConfigured ? (
+            <Text as="span" font="caption">
+              (escrow unset in env — counter reads as 0; register owner must deploy
+              and wire escrow)
+            </Text>
+          ) : (
+            <Text as="span" font="caption" mono tabularNumbers>
+              {detail.openSessionCount.toString()}
+            </Text>
+          )}
+          .
+        </Text>
+        {detail.info.lifecycle === NodeLifecycle.Defunct ? (
+          <Banner
+            variant="informational"
+            startIcon="checkmark"
+            showDismiss={false}
+            title="Defunct on-chain"
+          >
+            <Text font="caption" color="fgMuted">
+              The operator record stays for audits. The registry owner may purge
+              the node id separately when the protocol allows it (`purgeDefunctNode`
+              on the registry contract).
+            </Text>
+          </Banner>
+        ) : null}
         <Banner
           variant="warning"
           startIcon="warning"
           showDismiss={false}
-          title="Deregister on-chain"
+          title="Stopping new bookings"
         >
           <Text font="caption" color="fgMuted">
-            Removes this node from ProviderRegistry (operator only). The same
-            node ID can be registered again later. Escrow sessions are not
-            closed for you.
+            Chill first (allowed with open sessions), settle everything, then mark
+            defunct when the escrow open-session counter is zero — there is no
+            operator-triggered registry delete anymore.
           </Text>
         </Banner>
-        <Button
-          variant="negative"
-          disabled={manageDisabled}
-          loading={txBusy}
-          accessibilityLabel="Deregister this node from the registry"
-          onClick={() => openDeregisterModal()}
-        >
-          Deregister node
-        </Button>
+        <HStack gap={2} style={{ flexWrap: "wrap" }}>
+          <Button
+            variant="secondary"
+            disabled={
+              manageDisabled || !canChill || pendingAhead > 0
+            }
+            loading={txBusy}
+            accessibilityLabel="Chill this node — stop new sessions"
+            onClick={() => openChillModal()}
+          >
+            Chill node
+          </Button>
+          <Button
+            variant="negative"
+            disabled={
+              manageDisabled ||
+              detail.info.lifecycle !== NodeLifecycle.Chilled ||
+              pendingAhead > 0
+            }
+            loading={txBusy}
+            accessibilityLabel={
+              !canMarkDefunct
+                ? "Mark defunct — disabled until escrow count is zero"
+                : "Mark defunct node"
+            }
+            onClick={() => openDefunctModal()}
+          >
+            Mark defunct…
+          </Button>
+        </HStack>
+        {!canMarkDefunct &&
+        detail.info.lifecycle === NodeLifecycle.Chilled &&
+        escrowConfigured &&
+        detail.openSessionCount > 0n ? (
+          <Text font="caption" color="fgMuted">
+            Mark defunct unlocks automatically when escrow open-session count
+            reaches 0 — use Sessions to settle in-flight ledger rows.
+          </Text>
+        ) : null}
       </VStack>
     </VStack>
   );
@@ -505,10 +700,15 @@ export default function NodeDetailPage() {
         registry,
         nodeIdFromRoute,
       );
+      const openSessionCount = await readOpenSessionCount(
+        publicClient,
+        hubConfig.settlementEscrowAddress,
+        nodeIdFromRoute,
+      );
       const isRegistered =
         info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
 
-      return { info, operator, isRegistered };
+      return { info, operator, isRegistered, openSessionCount };
     },
     enabled: Boolean(
       detailQueryReady && publicClient,
@@ -773,6 +973,51 @@ export default function NodeDetailPage() {
                 layout="vertical"
                 title={
                   <Text font="label2" color="fgMuted">
+                    Lifecycle
+                  </Text>
+                }
+                subtitle={
+                  <HStack gap={2} alignItems="center">
+                    <Box
+                      width={8}
+                      height={8}
+                      style={{
+                        borderRadius: 9999,
+                        backgroundColor:
+                          detail.info.lifecycle === NodeLifecycle.Active
+                            ? "#16a34a"
+                            : detail.info.lifecycle === NodeLifecycle.Chilled
+                              ? "#d97706"
+                              : "#64748b",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Text font="title3">{lifecycleLabel(detail.info.lifecycle)}</Text>
+                  </HStack>
+                }
+              />
+
+              <DataCard
+                layout="vertical"
+                title={
+                  <Text font="label2" color="fgMuted">
+                    Open escrow sessions (this node)
+                  </Text>
+                }
+                subtitle={
+                  <Text font="title3" mono tabularNumbers>
+                    {hubConfig!.settlementEscrowAddress.toLowerCase() ===
+                    ZERO_ADDRESS.toLowerCase()
+                      ? "Escrow unset (env)"
+                      : detail.openSessionCount.toString()}
+                  </Text>
+                }
+              />
+
+              <DataCard
+                layout="vertical"
+                title={
+                  <Text font="label2" color="fgMuted">
                     Active status
                   </Text>
                 }
@@ -901,10 +1146,13 @@ export default function NodeDetailPage() {
                   detail.info.metadataURI,
                   detail.info.payout,
                   detail.info.active ? "1" : "0",
+                  String(detail.info.lifecycle),
+                  detail.openSessionCount.toString(),
                 ].join(":")}
                 nodeId={nodeIdFromRoute}
                 detail={detail as LoadedNodeDetail}
                 registryAddress={hubConfig.providerRegistryAddress}
+                settlementEscrowAddress={hubConfig.settlementEscrowAddress}
                 controlsDisabled={controlsDisabled}
                 walletClient={walletClient}
                 publicClient={publicClient}

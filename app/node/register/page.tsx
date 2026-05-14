@@ -20,6 +20,7 @@ import {
 
 import { ZERO_ADDRESS } from "@/lib/chains";
 import { getProvider, registerNode } from "@/lib/evm/registry";
+import { parseIdentityNodeId, parseIdentityPeerId } from "@/lib/identityProbe";
 import { classifyNodeIdInput, nodeDetailHrefFromRegistration, type NodeIdInputKind } from "@/lib/nodeId";
 import { normalizeNodeBaseUrl } from "@/lib/nodeBaseUrl";
 import { registerDebug } from "@/lib/registerDebug";
@@ -43,8 +44,13 @@ type ProbePart = {
 
 type ProbeApiOk = {
   status: ProbePart;
-  details: ProbePart;
   models: ProbePart;
+  identity: ProbePart;
+};
+
+type RegisterProbeGate = {
+  canonicalNodeId: Hex | null;
+  identityPeerId: string | null;
 };
 
 function formatProbeBody(body: unknown): string {
@@ -62,23 +68,29 @@ function RegisterFormBody({
   onNodeIdentityChange,
   nodeIdInputKind,
   resolvedNodeId,
+  canonicalNodeIdFromProbe,
   defaultPayoutAddress,
   fieldsDisabled,
   submitRegisterDisabled,
   successHash,
   txBusy,
   onSubmitFields,
+  onProbeGateChange,
+  onApplyIdentityFromProbe,
 }: {
   nodeIdentityInput: string;
   onNodeIdentityChange: (value: string) => void;
   nodeIdInputKind: NodeIdInputKind;
   resolvedNodeId: Hex | null;
+  canonicalNodeIdFromProbe: Hex | null;
   defaultPayoutAddress: string;
   fieldsDisabled: boolean;
   submitRegisterDisabled: boolean;
   successHash: string | null;
   txBusy: boolean;
   onSubmitFields: (fields: RegisterFormFields) => void;
+  onProbeGateChange: (gate: RegisterProbeGate) => void;
+  onApplyIdentityFromProbe: (peerId: string) => void;
 }) {
   /** Empty initial state avoids SSR vs client mismatch when the wallet restores on load. */
   const [payoutInput, setPayoutInput] = useState("");
@@ -102,6 +114,7 @@ function RegisterFormBody({
     if (!base) return;
     setProbeHttpError(null);
     setProbeResult(null);
+    onProbeGateChange({ canonicalNodeId: null, identityPeerId: null });
     setProbeLoading(true);
     try {
       const r = await fetch("/api/provider-node-probe", {
@@ -121,7 +134,17 @@ function RegisterFormBody({
         setProbeHttpError(`Probe failed (${r.status})`);
         return;
       }
-      setProbeResult(data as ProbeApiOk);
+      const ok = data as ProbeApiOk;
+      setProbeResult(ok);
+      const idPart = ok.identity;
+      const canonical =
+        idPart.ok ? parseIdentityNodeId(idPart.body) : null;
+      const peer =
+        idPart.ok ? parseIdentityPeerId(idPart.body) : null;
+      onProbeGateChange({ canonicalNodeId: canonical, identityPeerId: peer });
+      if (peer) {
+        onApplyIdentityFromProbe(peer);
+      }
     } catch (e) {
       setProbeHttpError(
         e instanceof Error ? e.message : "Probe request failed",
@@ -135,27 +158,57 @@ function RegisterFormBody({
     <VStack gap={2}>
       <TextInput
         label="Peer ID"
-        placeholder="12D3KooW… (from logs or GET …/details → peer_id)"
+        placeholder="12D3KooW… (from logs or GET …/identity → peer_id)"
         value={nodeIdentityInput}
         onChange={(e) => onNodeIdentityChange(e.target.value)}
         disabled={fieldsDisabled}
       />
       <Text font="caption" color="fgMuted">
-        Use the libp2p peer id printed when your node starts, or the{" "}
+        Prefer the libp2p peer id string (human-readable). After you run Test
+        node, the form syncs with{" "}
         <Text as="span" font="caption" mono>
-          peer_id
-        </Text>{" "}
-        field from{" "}
-        <Text as="span" font="caption" mono>
-          GET …/details
-        </Text>{" "}
-        on your provider base URL (below). It is converted to the on-chain{" "}
+          GET …/identity
+        </Text>
+        . The on-chain{" "}
         <Text as="span" font="caption" mono>
           bytes32
         </Text>{" "}
-        shown below. Advanced: paste a full 32-byte hex key or an Ethereum
-        address (right-padded), for tests or non-libp2p setups.
+        is always{" "}
+        <Text as="span" font="caption" mono>
+          keccak256(ed25519_pubkey)
+        </Text>{" "}
+        from that endpoint — not the libp2p multihash digest. Advanced: paste{" "}
+        <Text as="span" font="caption" mono>
+          0x
+        </Text>{" "}
+        + 64 hex or an Ethereum address (right-padded) only if it matches{" "}
+        <Text as="span" font="caption" mono>
+          /identity.node_id
+        </Text>
+        .
       </Text>
+
+      {canonicalNodeIdFromProbe ? (
+        <Box
+          width="100%"
+          padding={2}
+          bordered
+          borderColor="bgLineHeavy"
+          style={{ borderRadius: 8 }}
+        >
+          <Text font="caption" color="fgMuted">
+            On-chain id from successful probe (GET /identity → node_id)
+          </Text>
+          <Text
+            font="caption"
+            mono
+            tabularNumbers
+            style={{ wordBreak: "break-all" }}
+          >
+            {canonicalNodeIdFromProbe}
+          </Text>
+        </Box>
+      ) : null}
 
       {resolvedNodeId ? (
         <Box
@@ -166,15 +219,24 @@ function RegisterFormBody({
           style={{ borderRadius: 8 }}
         >
           <Text font="caption" color="fgMuted">
-            On-chain registry key (bytes32)
+            Resolved from your input (preview)
           </Text>
-          <Text font="caption" mono tabularNumbers style={{ wordBreak: "break-all" }}>
+          <Text
+            font="caption"
+            mono
+            tabularNumbers
+            style={{ wordBreak: "break-all" }}
+          >
             {resolvedNodeId}
           </Text>
           {nodeIdInputKind === "peer_id" ? (
             <Text font="caption" color="fgMuted">
-              = keccak256 over the decoded peer id multihash (same binary encoding
-              as libp2p’s peer id bytes).
+              Libp2p strings are hashed here as keccak over the multihash bytes
+              (legacy preview only). Registration uses{" "}
+              <Text as="span" font="caption" mono>
+                /identity.node_id
+              </Text>{" "}
+              after a successful test.
             </Text>
           ) : null}
           {nodeIdInputKind === "address" ? (
@@ -184,7 +246,11 @@ function RegisterFormBody({
           ) : null}
           {nodeIdInputKind === "hex32" ? (
             <Text font="caption" color="fgMuted">
-              = raw bytes32 from your paste.
+              = raw bytes32 from your paste (must match{" "}
+              <Text as="span" font="caption" mono>
+                /identity
+              </Text>{" "}
+              after testing).
             </Text>
           ) : null}
         </Box>
@@ -236,13 +302,17 @@ function RegisterFormBody({
         Node base URL
       </Text>
       <Text font="caption" color="fgMuted">
-        HTTP(S) origin only — stored on-chain and must serve{" "}
+        HTTP origin stored on-chain as versioned JSON (with{" "}
+        <Text as="span" font="caption" mono>
+          baseUrl
+        </Text>
+        ) in this flow. Your process must serve{" "}
         <Text as="span" font="caption" mono>
           /status
         </Text>
         ,{" "}
         <Text as="span" font="caption" mono>
-          /details
+          /identity
         </Text>
         , and{" "}
         <Text as="span" font="caption" mono>
@@ -254,7 +324,12 @@ function RegisterFormBody({
         label="Provider base URL"
         placeholder="http://127.0.0.1:8787"
         value={nodeBaseUrl}
-        onChange={(e) => setNodeBaseUrl(e.target.value)}
+        onChange={(e) => {
+          setNodeBaseUrl(e.target.value);
+          onProbeGateChange({ canonicalNodeId: null, identityPeerId: null });
+          setProbeResult(null);
+          setProbeHttpError(null);
+        }}
         disabled={probeBlocked}
       />
 
@@ -268,13 +343,18 @@ function RegisterFormBody({
         </Text>
         ,{" "}
         <Text as="span" font="caption" mono>
-          /details
+          /v1/models
         </Text>
         , and{" "}
         <Text as="span" font="caption" mono>
-          /v1/models
+          /identity
         </Text>{" "}
-        on your node via this app (server-side GETs from the portal host).
+        on your node via this app (server-side GETs from the portal host). A
+        successful{" "}
+        <Text as="span" font="caption" mono>
+          /identity
+        </Text>{" "}
+        is required before registering.
       </Text>
       <Button
         variant="secondary"
@@ -324,13 +404,13 @@ function RegisterFormBody({
           </VStack>
           <VStack gap={1} alignItems="flex-start" width="100%">
             <Text font="label2" color="fgMuted">
-              Details (/details)
+              Identity (/identity)
             </Text>
             <Text font="caption" color="fgMuted">
-              HTTP {probeResult.details.httpStatus}{" "}
-              {probeResult.details.ok ? "OK" : "non-OK"}
-              {probeResult.details.error
-                ? ` — ${probeResult.details.error}`
+              HTTP {probeResult.identity.httpStatus}{" "}
+              {probeResult.identity.ok ? "OK" : "non-OK"}
+              {probeResult.identity.error
+                ? ` — ${probeResult.identity.error}`
                 : ""}
             </Text>
             <Box
@@ -341,7 +421,7 @@ function RegisterFormBody({
               style={{ overflow: "auto", maxHeight: 220 }}
             >
               <Text font="caption" mono tabularNumbers style={{ whiteSpace: "pre-wrap" }}>
-                {formatProbeBody(probeResult.details.body)}
+                {formatProbeBody(probeResult.identity.body)}
               </Text>
             </Box>
           </VStack>
@@ -420,20 +500,59 @@ export default function ProviderRegisterPage() {
   const [successHash, setSuccessHash] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [nodeIdentityInput, setNodeIdentityInput] = useState("");
+  const [probeGate, setProbeGate] = useState<RegisterProbeGate>({
+    canonicalNodeId: null,
+    identityPeerId: null,
+  });
 
   const { kind: nodeIdInputKind, nodeId: resolvedNodeId } = useMemo(
     () => classifyNodeIdInput(nodeIdentityInput),
     [nodeIdentityInput],
   );
 
+  const registrationLookupId =
+    probeGate.canonicalNodeId ??
+    (nodeIdInputKind !== "peer_id" ? resolvedNodeId : null);
+
+  const registrationIdAligned = useMemo(() => {
+    const c = probeGate.canonicalNodeId;
+    if (!c) return false;
+    const hexMatch =
+      Boolean(resolvedNodeId) &&
+      resolvedNodeId!.toLowerCase() === c.toLowerCase();
+    const peerMatch =
+      probeGate.identityPeerId !== null &&
+      nodeIdentityInput.trim() === probeGate.identityPeerId;
+    return hexMatch || peerMatch;
+  }, [
+    probeGate.canonicalNodeId,
+    probeGate.identityPeerId,
+    resolvedNodeId,
+    nodeIdentityInput,
+  ]);
+
+  const handleProbeGateChange = useCallback((gate: RegisterProbeGate) => {
+    setProbeGate(gate);
+  }, []);
+
+  const handleApplyIdentityFromProbe = useCallback((peerId: string) => {
+    setNodeIdentityInput(peerId);
+  }, []);
+
   const resolvedNodePageHref = useMemo(() => {
-    if (!resolvedNodeId) return "/node";
+    const nodeHex = probeGate.canonicalNodeId ?? resolvedNodeId;
+    if (!nodeHex) return "/node";
     return nodeDetailHrefFromRegistration({
       kind: nodeIdInputKind,
-      nodeIdHex: resolvedNodeId,
+      nodeIdHex: nodeHex,
       rawIdentityInput: nodeIdentityInput,
     });
-  }, [resolvedNodeId, nodeIdInputKind, nodeIdentityInput]);
+  }, [
+    probeGate.canonicalNodeId,
+    resolvedNodeId,
+    nodeIdInputKind,
+    nodeIdentityInput,
+  ]);
 
   const chainReady = Boolean(
     isConnected &&
@@ -458,21 +577,21 @@ export default function ProviderRegisterPage() {
       "providerRegistered",
       hubConfig?.chainId,
       hubConfig?.providerRegistryAddress,
-      resolvedNodeId,
+      registrationLookupId,
     ],
     queryFn: async () => {
-      if (!publicClient || !hubConfig || !resolvedNodeId) return false;
+      if (!publicClient || !hubConfig || !registrationLookupId) return false;
       const info = await getProvider(
         publicClient,
         hubConfig.providerRegistryAddress,
-        resolvedNodeId,
+        registrationLookupId,
       );
       return info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
     },
     enabled: Boolean(
       chainReady &&
         hubConfig &&
-        resolvedNodeId &&
+        registrationLookupId &&
         publicClient &&
         !registryUnset &&
         !configError,
@@ -494,9 +613,11 @@ export default function ProviderRegisterPage() {
     async (fields: RegisterFormFields) => {
       setValidationError(null);
       setTxError(null);
-      const nodeId = resolvedNodeId;
+      const nodeId = probeGate.canonicalNodeId;
       registerDebug("submitRegistration: start", {
         resolvedNodeId,
+        canonicalNodeId: probeGate.canonicalNodeId,
+        registrationIdAligned,
         chainReady,
         isConnected,
         chainId,
@@ -512,9 +633,16 @@ export default function ProviderRegisterPage() {
         registryAddress: hubConfig?.providerRegistryAddress,
       });
       if (!nodeId) {
-        registerDebug("submitRegistration: abort — invalid node id");
+        registerDebug("submitRegistration: abort — no canonical id from probe");
         setValidationError(
-          "Enter a valid peer id (12D3Koo… from your node), 0x + 64 hex bytes32, or an Ethereum address.",
+          'Run Test node first. Registration needs a successful GET /identity with a valid node_id (canonical bytes32 = keccak256(ed25519 pubkey)).',
+        );
+        return;
+      }
+      if (!registrationIdAligned) {
+        registerDebug("submitRegistration: abort — identity mismatch");
+        setValidationError(
+          "Peer id or bytes32 field must match your node’s GET /identity (same peer_id string or 0x node_id). Run Test node again or paste the values from /identity.",
         );
         return;
       }
@@ -541,7 +669,7 @@ export default function ProviderRegisterPage() {
           nodeBaseRaw: fields.nodeBaseUrl.slice(0, 80),
         });
         setValidationError(
-          "Enter a valid node base URL (http:// or https:// host, optionally with port). It is stored on-chain and must expose /status, /details, and /v1/models.",
+          "Enter a valid node base URL (http:// or https:// host, optionally with port). Your node's HTTP origin must expose /status, /identity, and /v1/models.",
         );
         return;
       }
@@ -578,10 +706,19 @@ export default function ProviderRegisterPage() {
         return;
       }
 
+      const metadataURI = JSON.stringify({
+        version: 1,
+        baseUrl: nodeBaseNormalized,
+        ...(probeGate.identityPeerId
+          ? { peer_id: probeGate.identityPeerId }
+          : {}),
+        node_id: nodeId,
+      });
+
       registerDebug("submitRegistration: calling registerNode", {
         nodeId,
         payout,
-        metadataURI: nodeBaseNormalized,
+        metadataURI,
       });
       setTxBusy(true);
       setSuccessHash(null);
@@ -594,7 +731,7 @@ export default function ProviderRegisterPage() {
             payout,
             supportsBestEffort: fields.supportsBestEffort,
             supportsTEE: fields.supportsTEE,
-            metadataURI: nodeBaseNormalized,
+            metadataURI,
           },
         );
         await waitForTransactionReceipt(publicClient, { hash });
@@ -640,6 +777,8 @@ export default function ProviderRegisterPage() {
       resolvedNodeId,
       nodeIdInputKind,
       nodeIdentityInput,
+      probeGate,
+      registrationIdAligned,
       walletClient,
       walletClientError,
       router,
@@ -658,7 +797,10 @@ export default function ProviderRegisterPage() {
 
   const fieldsDisabled = walletRegistryGate || Boolean(registered);
   const submitRegisterDisabled =
-    walletRegistryGate || Boolean(registered) || Boolean(successHash);
+    walletRegistryGate ||
+    Boolean(registered) ||
+    Boolean(successHash) ||
+    !registrationIdAligned;
 
   const defaultPayout = address ?? "";
 
@@ -675,21 +817,23 @@ export default function ProviderRegisterPage() {
           <Text as="span" font="body" mono>
             ProviderRegistry
           </Text>{" "}
-          using the peer id string from your node logs or the{" "}
+          using the libp2p peer id from your node (or paste the{" "}
           <Text as="span" font="body" mono>
             peer_id
           </Text>{" "}
-          field in{" "}
+          from{" "}
           <Text as="span" font="body" mono>
-            GET …/details
+            GET …/identity
           </Text>
-          . Your connected wallet becomes the operator. The portal derives the
-          on-chain{" "}
+          ). Run Test node so the portal reads the canonical on-chain{" "}
           <Text as="span" font="body" mono>
             bytes32
           </Text>{" "}
-          automatically. After registration, use the node page to update payout,
-          base URL, and listing status.
+          (<Text as="span" font="body" mono>
+            keccak256(ed25519_pubkey)
+          </Text>
+          ). Your wallet signs as operator. After registration, use the node
+          page to update payout, metadata, and listing status.
         </Text>
 
         {configError ? (
@@ -740,6 +884,38 @@ export default function ProviderRegisterPage() {
           >
             <Text font="body">
               Switch to chain {hubConfig.chainId} ({hubConfig.chainName}).
+            </Text>
+          </Banner>
+        ) : null}
+
+        {chainReady &&
+        !registryUnset &&
+        !configError &&
+        probeGate.canonicalNodeId &&
+        !registrationIdAligned &&
+        !registered &&
+        !registrationLoading &&
+        !successHash ? (
+          <Banner
+            variant="warning"
+            startIcon="warning"
+            showDismiss={false}
+            title="Identity must match your node"
+          >
+            <Text font="body">
+              Your peer id or pasted hex does not match the last successful{" "}
+              <Text as="span" font="body" mono>
+                GET /identity
+              </Text>{" "}
+              probe. Run Test node again, use the{" "}
+              <Text as="span" font="body" mono>
+                peer_id
+              </Text>{" "}
+              from the response, or paste the{" "}
+              <Text as="span" font="body" mono>
+                node_id
+              </Text>{" "}
+              hex exactly — do not register a mismatched id.
             </Text>
           </Banner>
         ) : null}
@@ -817,12 +993,15 @@ export default function ProviderRegisterPage() {
           onNodeIdentityChange={setNodeIdentityInput}
           nodeIdInputKind={nodeIdInputKind}
           resolvedNodeId={resolvedNodeId}
+          canonicalNodeIdFromProbe={probeGate.canonicalNodeId}
           defaultPayoutAddress={defaultPayout}
           fieldsDisabled={fieldsDisabled}
           submitRegisterDisabled={submitRegisterDisabled}
           successHash={successHash}
           txBusy={txBusy}
           onSubmitFields={(fields) => void submitRegistration(fields)}
+          onProbeGateChange={handleProbeGateChange}
+          onApplyIdentityFromProbe={handleApplyIdentityFromProbe}
         />
       </VStack>
     </Box>

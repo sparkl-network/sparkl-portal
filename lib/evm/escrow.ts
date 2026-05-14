@@ -6,6 +6,7 @@ import {
   encodeFunctionData,
   getAddress,
   parseAbiItem,
+  zeroAddress,
 } from "viem";
 
 import { settlementEscrowAbi } from "@/lib/abi";
@@ -64,6 +65,27 @@ export async function getDotBalance(
     abi: settlementEscrowAbi,
     functionName: "getDotBalances",
     args: [user],
+  });
+  return raw as bigint;
+}
+
+/**
+ * Escrow view: sessions opened for `nodeId` that have not reached a full settle
+ * (`openSessionCountByNode` on `SettlementEscrow`).
+ */
+export async function readOpenSessionCount(
+  publicClient: PublicClient,
+  escrowAddress: Address,
+  nodeId: Hex,
+): Promise<bigint> {
+  if (escrowAddress.toLowerCase() === zeroAddress.toLowerCase()) {
+    return 0n;
+  }
+  const raw = await publicClient.readContract({
+    address: escrowAddress,
+    abi: settlementEscrowAbi,
+    functionName: "openSessionCountByNode",
+    args: [nodeId],
   });
   return raw as bigint;
 }

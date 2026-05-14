@@ -83,8 +83,8 @@ export async function POST(req: Request) {
   }
 
   const status = await fetchProbe("/status");
-  const details = await fetchProbe("/details");
   const models = await fetchProbe("/v1/models");
+  const identity = await fetchProbe("/identity");
 
-  return NextResponse.json({ status, details, models });
+  return NextResponse.json({ status, models, identity });
 }
