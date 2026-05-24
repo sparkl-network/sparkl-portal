@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SOLO="${SPARKL_SOLO:-${HOME}/sparkl-solo}"
+SOLO="${SPARKL_SOLO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/sparkl-solo}"
 
 cd "${SOLO}/contracts"
 forge build

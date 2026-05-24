@@ -7,6 +7,8 @@ Web UI for the Sparkl Network, including the Hub EVM
 
 On-chain contracts and Foundry tooling live in the sibling repo [sparkl-solo](https://github.com/sparkl-network/sparkl-solo).
 
+**Coding agents:** see **[AGENTS.md](./AGENTS.md)** for ecosystem layout, local Anvil workflow, tests, and contribution.
+
 Registry **`nodeId`** values are **`bytes32`** on chain (e.g. Substrate **PeerId** hash). The UI accepts full 32-byte hex or string, see **`lib/nodeId.ts`**.
 
 ## Prerequisites
@@ -52,7 +54,7 @@ JSON ABIs live under **`lib/abi/`**. After changing Solidity in `sparkl-solo/con
 yarn abis:sync
 ```
 
-This runs **`scripts/sync-abis.sh`**, which uses **`SPARKL_SOLO`** (default **`$HOME/sparkl-solo`**) and **`forge build`** / **`forge inspect … abi --json`**.
+This runs **`scripts/sync-abis.sh`**, which uses **`SPARKL_SOLO`** (default: sibling **`../sparkl-solo`** under **`sparkl-network/`**) and **`forge build`** / **`forge inspect … abi --json`**.
 
 ## SDK layout
 

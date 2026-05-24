@@ -65,7 +65,7 @@ After every Anvil restart (or whenever you start a fresh Anvil):
 2. **Redeploy the local stack** with Foundry from **`sparkl-solo/contracts/`**. This matches the **“Local chain: Anvil + deploy script”** flow in [`sparkl-solo/contracts/README.md`](https://github.com/sparkl-network/sparkl-solo/blob/main/contracts/README.md#local-chain-anvil--deploy-script):
 
    ```bash
-   cd ../sparkl-solo/contracts   # sibling checkout; adjust path if needed
+   cd ../sparkl-solo/contracts   # sibling under sparkl-network/ (or set SPARKL_SOLO)
 
    forge script script/DeployLocal.s.sol:DeployLocal \
      --rpc-url http://127.0.0.1:8545 \
