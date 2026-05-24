@@ -243,7 +243,7 @@ export function getActiveChainConfig(): HubChainConfig {
   };
 }
 
-function useSameOriginRpcProxyEnv(): boolean {
+function sameOriginRpcProxyEnabled(): boolean {
   const v = process.env.NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY;
   return v === "1" || v === "true";
 }
@@ -263,7 +263,7 @@ function useSameOriginRpcProxyEnv(): boolean {
  * you use for the portal>/api/rpc`**, or remove the network and let the app re-add it via **Switch network**.
  */
 export function walletFacingRpcUrl(cfg: HubChainConfig): string {
-  if (!useSameOriginRpcProxyEnv()) {
+  if (!sameOriginRpcProxyEnabled()) {
     return cfg.rpcUrl;
   }
   const fixed = process.env.NEXT_PUBLIC_RPC_PUBLIC_PROXY_URL?.trim();
