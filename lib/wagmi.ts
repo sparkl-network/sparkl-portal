@@ -7,7 +7,7 @@ import {
   walletFacingRpcUrl,
 } from "@/lib/chains";
 
-function useSameOriginRpcProxy(): boolean {
+function sameOriginRpcProxy(): boolean {
   const v = process.env.NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY;
   return v === "1" || v === "true";
 }
@@ -22,11 +22,11 @@ export function getHubWagmiConfig() {
     );
   }
 
-  const transportUrl = useSameOriginRpcProxy()
+  const transportUrl = sameOriginRpcProxy()
     ? walletFacingRpcUrl(cfg)
     : cfg.rpcUrl;
 
-  if (useSameOriginRpcProxy() && !process.env.RPC_PROXY_TARGET?.trim()) {
+  if (sameOriginRpcProxy() && !process.env.RPC_PROXY_TARGET?.trim()) {
     console.warn(
       "[wagmi] NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY is set but RPC_PROXY_TARGET is missing; /api/rpc may 501.",
     );
@@ -37,7 +37,7 @@ export function getHubWagmiConfig() {
     projectId,
     chains: [chain],
     transports: {
-      [chain.id]: http(transportUrl),
+      [chain.id]: http(transportUrl, { timeout: 15_000 }),
     },
     ssr: false,
   });

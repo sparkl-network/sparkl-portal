@@ -98,11 +98,17 @@ export function AppToolbar() {
         }
       >
         <HStack gap={3}>
-          <Link as={NextLink} href="/" font="body" underline={false}>
-            Home
+          <Link as={NextLink} href="/node" font="body" underline={false}>
+            Nodes
           </Link>
-          <Link as={NextLink} href="/p" font="body" underline={false}>
-            Provider
+          <Link
+            as={NextLink}
+            href="/provider"
+            font="body"
+            underline={false}
+            title="Operator accounts directory"
+          >
+            Providers
           </Link>
           <Link as={NextLink} href="/c" font="body" underline={false}>
             Consumer

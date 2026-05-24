@@ -30,12 +30,64 @@
   },
   {
     "type": "function",
+    "name": "chillNode",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "encryptionKeys",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "version",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "pubkey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "activatedAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "deprecatedAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "revoked",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getMetadataURI",
     "inputs": [
       {
-        "name": "provider",
-        "type": "address",
-        "internalType": "address"
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [
@@ -52,9 +104,9 @@
     "name": "getPricePer1k",
     "inputs": [
       {
-        "name": "provider",
-        "type": "address",
-        "internalType": "address"
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "tier",
@@ -76,16 +128,16 @@
     "name": "getProvider",
     "inputs": [
       {
-        "name": "provider",
-        "type": "address",
-        "internalType": "address"
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [
       {
         "name": "",
         "type": "tuple",
-        "internalType": "struct ProviderInfo",
+        "internalType": "struct NodeInfo",
         "components": [
           {
             "name": "payout",
@@ -116,8 +168,153 @@
             "name": "teeReportHash",
             "type": "bytes32",
             "internalType": "bytes32"
+          },
+          {
+            "name": "metadataURI",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "lifecycle",
+            "type": "uint8",
+            "internalType": "enum NodeLifecycle"
+          },
+          {
+            "name": "encryptionPubkey",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "encryptionKeyVersion",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "encryptionKeysLastVersion",
+            "type": "uint32",
+            "internalType": "uint32"
           }
         ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "markDefunct",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "nodeOperator",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nodes",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "payout",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "feeBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "supportsBestEffort",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "supportsTEE",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "teeReportHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "metadataURI",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "lifecycle",
+        "type": "uint8",
+        "internalType": "enum NodeLifecycle"
+      },
+      {
+        "name": "encryptionPubkey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "encryptionKeyVersion",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "encryptionKeysLastVersion",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "operatorNodes",
+    "inputs": [
+      {
+        "name": "operator",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
       }
     ],
     "stateMutability": "view"
@@ -137,8 +334,26 @@
   },
   {
     "type": "function",
-    "name": "registerProvider",
+    "name": "purgeDefunctNode",
     "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "registerNode",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
       {
         "name": "payout",
         "type": "address",
@@ -158,6 +373,52 @@
         "name": "metadataURI",
         "type": "string",
         "internalType": "string"
+      },
+      {
+        "name": "initialEncryptionPubkey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "revokeEncryptionKey",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "version",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "rotateEncryptionKey",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "newPubkey",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "gracePeriodSecs",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "outputs": [],
@@ -178,8 +439,85 @@
   },
   {
     "type": "function",
-    "name": "setPricing",
+    "name": "setNodeActive",
     "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNodeFee",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "feeBps",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNodeMetadata",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "uri",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNodePayout",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "payout",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNodePricing",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
       {
         "name": "tier",
         "type": "uint8",
@@ -196,41 +534,10 @@
   },
   {
     "type": "function",
-    "name": "setProviderActive",
+    "name": "setSettlementEscrow",
     "inputs": [
       {
-        "name": "active",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setProviderFee",
-    "inputs": [
-      {
-        "name": "provider",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "feeBps",
-        "type": "uint16",
-        "internalType": "uint16"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setProviderPayout",
-    "inputs": [
-      {
-        "name": "payout",
+        "name": "escrow",
         "type": "address",
         "internalType": "address"
       }
@@ -243,9 +550,9 @@
     "name": "setTEEProof",
     "inputs": [
       {
-        "name": "provider",
-        "type": "address",
-        "internalType": "address"
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "teeReportHash",
@@ -258,12 +565,25 @@
   },
   {
     "type": "function",
+    "name": "settlementEscrow",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "supportsTier",
     "inputs": [
       {
-        "name": "provider",
-        "type": "address",
-        "internalType": "address"
+        "name": "nodeId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "tier",
@@ -314,6 +634,220 @@
   },
   {
     "type": "event",
+    "name": "EncryptionKeyRevoked",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "version",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "EncryptionKeyRotated",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "newVersion",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "newPubkey",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "previousVersion",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "gracePeriodEnd",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodeActiveUpdated",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodeChilled",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodeFeeUpdated",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "feeBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodeMarkedDefunct",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodeMetadataUpdated",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "metadataURI",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodePayoutUpdated",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "payout",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodePurged",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NodeRegistered",
+    "inputs": [
+      {
+        "name": "nodeId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "operator",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "metadataURI",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OwnershipTransferred",
     "inputs": [
       {
@@ -336,10 +870,10 @@
     "name": "PricingUpdated",
     "inputs": [
       {
-        "name": "provider",
-        "type": "address",
+        "name": "nodeId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "address"
+        "internalType": "bytes32"
       },
       {
         "name": "tier",
@@ -358,94 +892,19 @@
   },
   {
     "type": "event",
-    "name": "ProviderActiveUpdated",
+    "name": "SettlementEscrowUpdated",
     "inputs": [
       {
-        "name": "provider",
+        "name": "previous",
         "type": "address",
         "indexed": true,
         "internalType": "address"
       },
       {
-        "name": "active",
-        "type": "bool",
-        "indexed": false,
-        "internalType": "bool"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ProviderFeeUpdated",
-    "inputs": [
-      {
-        "name": "provider",
+        "name": "next",
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      },
-      {
-        "name": "feeBps",
-        "type": "uint16",
-        "indexed": false,
-        "internalType": "uint16"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ProviderPayoutUpdated",
-    "inputs": [
-      {
-        "name": "provider",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "payout",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ProviderRegistered",
-    "inputs": [
-      {
-        "name": "provider",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "payout",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
-      },
-      {
-        "name": "supportsBestEffort",
-        "type": "bool",
-        "indexed": false,
-        "internalType": "bool"
-      },
-      {
-        "name": "supportsTEE",
-        "type": "bool",
-        "indexed": false,
-        "internalType": "bool"
-      },
-      {
-        "name": "metadataURI",
-        "type": "string",
-        "indexed": false,
-        "internalType": "string"
       }
     ],
     "anonymous": false
@@ -455,10 +914,10 @@
     "name": "TEEProofSet",
     "inputs": [
       {
-        "name": "provider",
-        "type": "address",
+        "name": "nodeId",
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "address"
+        "internalType": "bytes32"
       },
       {
         "name": "teeReportHash",
@@ -471,7 +930,42 @@
   },
   {
     "type": "error",
+    "name": "EncryptionKeyAlreadyRevoked",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EncryptionKeyNotFound",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "EscrowNotConfigured",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "GracePeriodTooLong",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidLifecycle",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidTEEProof",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NodeAlreadyRegistered",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NodeNotRegistered",
     "inputs": []
   },
   {
@@ -481,17 +975,32 @@
   },
   {
     "type": "error",
+    "name": "NotNodeOperator",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotOwner",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "ProviderNotRegistered",
+    "name": "OpenSessionsRemain",
     "inputs": []
   },
   {
     "type": "error",
     "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroEncryptionPubkey",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroNodeId",
     "inputs": []
   }
 ]
