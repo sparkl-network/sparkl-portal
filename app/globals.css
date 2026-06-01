@@ -37,6 +37,8 @@ body {
   border-top: 1px solid rgba(15, 23, 42, 0.12);
   background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(10px);
+  /* CDS `font="caption"` applies uppercase; footer copy is prose, not labels */
+  text-transform: none;
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -45,4 +47,29 @@ body {
     background: #ffffff;
     backdrop-filter: none;
   }
+}
+
+.user-page-layout {
+  display: grid;
+  grid-template-columns: 1fr min(380px, 100%);
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .user-page-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.user-fund-panel-sticky {
+  position: sticky;
+  top: 72px;
+}
+
+.user-fund-panel {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 16px;
 }

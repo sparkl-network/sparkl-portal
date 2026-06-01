@@ -135,8 +135,8 @@ export default function AllNodesPage() {
 
   const registryUnset = Boolean(
     !hubConfig ||
-      !hubConfig.providerRegistryAddress ||
-      hubConfig.providerRegistryAddress.toLowerCase() ===
+      !hubConfig.operatorRegistryAddress ||
+      hubConfig.operatorRegistryAddress.toLowerCase() ===
         ZERO_ADDRESS.toLowerCase(),
   );
 
@@ -163,7 +163,7 @@ export default function AllNodesPage() {
     queryKey: [
       "allRegistryNodes",
       hubConfig?.chainId,
-      hubConfig?.providerRegistryAddress,
+      hubConfig?.operatorRegistryAddress,
     ],
     queryFn: async () => {
       if (!publicClient || !hubConfig) {
@@ -172,7 +172,7 @@ export default function AllNodesPage() {
       return enrichRegisteredNodesWithPeerId(
         await getRegisteredNodesWithOperators(
           publicClient,
-          hubConfig.providerRegistryAddress,
+          hubConfig.operatorRegistryAddress,
         ),
       );
     },
@@ -253,9 +253,7 @@ export default function AllNodesPage() {
           <VStack gap={1} alignItems="flex-start">
             <Text font="title2">Nodes</Text>
             <Text font="body" color="fgMuted">
-              Hub registry directory (Polkadot-style layout). Rows mirror validator
-              lists: status, fee, payout, and capabilities. Click a row for the full
-              node page.
+              Hub registry directory
             </Text>
           </VStack>
           {registerCtaReady ? (
@@ -288,7 +286,7 @@ export default function AllNodesPage() {
             variant="error"
             startIcon="warning"
             showDismiss={false}
-            title="Provider registry address missing"
+            title="Operator registry address missing"
           >
             <Text font="body">
               Set a deployed ProviderRegistry in your env (see .env.example),

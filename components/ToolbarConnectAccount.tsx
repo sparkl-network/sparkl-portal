@@ -17,6 +17,12 @@ type RkAccount = {
   displayName: string;
 };
 
+const accountInfoTextStyle = {
+  fontSize: "0.6875rem",
+  lineHeight: "0.8125rem",
+  textTransform: "none" as const,
+};
+
 export function ToolbarConnectAccount({
   mounted,
   account,
@@ -79,7 +85,10 @@ export function ToolbarConnectAccount({
 
   if (!mounted) return null;
 
-  if (!account) {
+  const showConnected = Boolean(isConnected && account?.address);
+  const connectedAccount = showConnected ? account : undefined;
+
+  if (!showConnected || !connectedAccount) {
     return (
       <Button
         accessibilityLabel="Connect wallet"
@@ -100,16 +109,34 @@ export function ToolbarConnectAccount({
       onClick={openAccountModal}
     >
       <VStack
-        gap={0}
+        gap={0.25}
         style={{ alignItems: "flex-end", textAlign: "right" as const }}
       >
-        <Text font="legal" color="fgMuted" mono noWrap>
-          {account.displayName}
+        <Text
+          font="legal"
+          color="fgMuted"
+          mono
+          noWrap
+          style={accountInfoTextStyle}
+        >
+          {connectedAccount.displayName}
         </Text>
-        <Text font="legal" color="fgMuted" tabularNumbers noWrap>
+        <Text
+          font="legal"
+          color="fgMuted"
+          tabularNumbers
+          noWrap
+          style={accountInfoTextStyle}
+        >
           Wallet · {walletDisplay}
         </Text>
-        <Text font="legal" color="fgMuted" tabularNumbers noWrap>
+        <Text
+          font="legal"
+          color="fgMuted"
+          tabularNumbers
+          noWrap
+          style={accountInfoTextStyle}
+        >
           Escrow · {escrowDisplay}
         </Text>
       </VStack>

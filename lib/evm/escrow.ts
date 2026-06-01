@@ -3,9 +3,11 @@ import {
   type Hex,
   type PublicClient,
   type WalletClient,
+  decodeEventLog,
   encodeFunctionData,
   getAddress,
   parseAbiItem,
+  type TransactionReceipt,
   zeroAddress,
 } from "viem";
 
@@ -13,6 +15,7 @@ import { settlementEscrowAbi } from "@/lib/abi";
 import { type EscrowSession, SecurityTier } from "@/lib/types";
 
 import { INTERNAL_DOT_DECIMALS, internalToNative } from "./dotUnits";
+import { sendViaInjectedProvider } from "./sendViaInjectedProvider";
 
 let warnedWalletNativeMismatch = false;
 
@@ -33,6 +36,100 @@ function nativeDecimalsFromWalletChain(chain: {
   nativeCurrency: { decimals: number };
 }): number {
   return assertNativeDecimals(chain.nativeCurrency.decimals);
+}
+
+/**
+ * Simulate on `publicClient` (portal `/api/rpc`), then broadcast the returned `request`
+ * so MetaMask does not re-run `eth_call` against a stale RPC URL.
+ */
+async function writeSimulatedEscrowCall(
+  walletClient: WalletClient,
+  publicClient: PublicClient,
+  params: {
+    address: Address;
+    functionName: "depositDot" | "withdrawDot";
+    args: readonly [] | readonly [bigint];
+    value?: bigint;
+  },
+): Promise<`0x${string}`> {
+  const account = walletClient.account;
+  if (!account) throw new Error("Wallet account unavailable");
+  const chain = walletClient.chain;
+  if (!chain) throw new Error("Wallet chain unavailable");
+
+  const rpcChainId = publicClient.chain?.id;
+  if (rpcChainId !== undefined && rpcChainId !== chain.id) {
+    throw new Error(
+      `Wallet reports chain ${chain.id} but the app RPC is on chain ${rpcChainId}. Switch your wallet to the hub chain (id ${rpcChainId}) and try again.`,
+    );
+  }
+
+  const data = encodeFunctionData({
+    abi: settlementEscrowAbi,
+    functionName: params.functionName,
+    args: params.args,
+  });
+
+  await publicClient.simulateContract({
+    address: params.address,
+    abi: settlementEscrowAbi,
+    functionName: params.functionName,
+    args: params.args,
+    account,
+    value: params.value,
+  });
+
+  try {
+    return await walletClient.writeContract({
+      address: params.address,
+      abi: settlementEscrowAbi,
+      functionName: params.functionName,
+      args: params.args,
+      account,
+      chain,
+      value: params.value,
+    });
+  } catch (walletWriteErr) {
+    const msg =
+      walletWriteErr instanceof Error
+        ? walletWriteErr.message
+        : String(walletWriteErr);
+    const lower = msg.toLowerCase();
+    const rpcish =
+      lower.includes("failed to fetch") ||
+      lower.includes("internal error was received") ||
+      lower.includes("-32603");
+    if (!rpcish) throw walletWriteErr;
+
+    const prepared = await publicClient.prepareTransactionRequest({
+      account,
+      chain,
+      to: params.address,
+      data,
+      value: params.value ?? 0n,
+    });
+
+    try {
+      return await walletClient.sendTransaction({
+        account,
+        chain,
+        to: params.address,
+        data,
+        value: params.value ?? 0n,
+      });
+    } catch {
+      return sendViaInjectedProvider({
+        from: account.address,
+        to: params.address,
+        data,
+        value: params.value ?? 0n,
+        gas: prepared.gas,
+        maxFeePerGas: prepared.maxFeePerGas,
+        maxPriorityFeePerGas: prepared.maxPriorityFeePerGas,
+        gasPrice: prepared.gasPrice,
+      });
+    }
+  }
 }
 
 function warnIfWalletNativeMismatch(
@@ -92,9 +189,8 @@ export async function readOpenSessionCount(
 
 /**
  * @param publicClient Wagmi `publicClient` (same-origin `/api/rpc` when the proxy is on). Used to
- * `estimateGas` / fees **before** `writeContract` so MetaMask sends a mostly complete
- * `eth_sendTransaction` and does fewer extra JSON-RPC round-trips via the extension — those
- * sometimes fail with `Failed to fetch` even when the tab’s own RPC works.
+ * `simulateContract` on `publicClient` (portal `/api/rpc`), then `writeContract` on the wallet
+ * without preset gas/fee fields so MetaMask does not reject the request with internal JSON-RPC errors.
  * @param nativeDecimals Must match `SettlementEscrow.nativeDotDecimals` and `hubConfig.nativeCurrency.decimals`
  * (from .env). Do not use the wallet connector’s decimals alone — MetaMask may still have stale chain metadata.
  */
@@ -113,51 +209,18 @@ export async function depositDot(
   const nd = assertNativeDecimals(nativeDecimals);
   warnIfWalletNativeMismatch(chain, nd);
   const value = internalToNative(amountInternal, nd);
-  const data = encodeFunctionData({
-    abi: settlementEscrowAbi,
-    functionName: "depositDot",
-    args: [],
-  });
 
-  const gas = await publicClient.estimateGas({
-    account: account.address,
-    to: escrowAddress,
-    data,
-    value,
-  });
-
-  let feeFields:
-    | { maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }
-    | { gasPrice: bigint };
-  try {
-    const fees = await publicClient.estimateFeesPerGas();
-    if (fees.maxFeePerGas != null && fees.maxPriorityFeePerGas != null) {
-      feeFields = {
-        maxFeePerGas: fees.maxFeePerGas,
-        maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
-      };
-    } else {
-      feeFields = { gasPrice: await publicClient.getGasPrice() };
-    }
-  } catch {
-    feeFields = { gasPrice: await publicClient.getGasPrice() };
-  }
-
-  return walletClient.writeContract({
+  return writeSimulatedEscrowCall(walletClient, publicClient, {
     address: escrowAddress,
-    abi: settlementEscrowAbi,
     functionName: "depositDot",
     args: [],
-    chain,
-    account,
     value,
-    gas,
-    ...feeFields,
   });
 }
 
 export async function withdrawDot(
   walletClient: WalletClient,
+  publicClient: PublicClient,
   escrowAddress: Address,
   amountInternal: bigint,
 ): Promise<`0x${string}`> {
@@ -166,13 +229,10 @@ export async function withdrawDot(
   const chain = walletClient.chain;
   if (!chain) throw new Error("Wallet chain unavailable");
 
-  return walletClient.writeContract({
+  return writeSimulatedEscrowCall(walletClient, publicClient, {
     address: escrowAddress,
-    abi: settlementEscrowAbi,
     functionName: "withdrawDot",
     args: [amountInternal],
-    chain,
-    account,
   });
 }
 
@@ -188,6 +248,7 @@ export async function openSession(
   escrowAddress: Address,
   nodeId: Hex,
   tier: SecurityTier,
+  modelId: Hex,
   amountInternal: bigint,
   mode: OpenSessionMode,
   nativeDecimals?: number,
@@ -210,7 +271,7 @@ export async function openSession(
     address: escrowAddress,
     abi: settlementEscrowAbi,
     functionName: "openSession",
-    args: [nodeId, tier, amountInternal],
+    args: [nodeId, tier, modelId, amountInternal],
     chain,
     account,
     value,
@@ -232,7 +293,7 @@ export async function getSession(
 }
 
 const sessionOpenedEvent = parseAbiItem(
-  "event SessionOpened(uint256 indexed sessionId, address indexed user, bytes32 indexed nodeId, uint8 tier, uint256 lockedInternal)",
+  "event SessionOpened(uint256 indexed sessionId, address indexed user, bytes32 indexed nodeId, uint8 tier, bytes32 modelId, uint256 lockedInternal)",
 );
 
 /** Session IDs from `SessionOpened` where `nodeId` matches (dev / explorer tooling). */
@@ -261,6 +322,55 @@ export async function getSessionIdsForNode(
     seen.set(sid.toString(), sid);
   }
   return [...seen.values()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** Session IDs from `SessionOpened` where `user` matches the connected wallet. */
+export async function getSessionIdsForUser(
+  publicClient: PublicClient,
+  escrowAddress: Address,
+  user: Address,
+  opts?: { fromBlock?: bigint },
+): Promise<bigint[]> {
+  const fromBlockEnv = process.env.NEXT_PUBLIC_SETTLEMENT_ESCROW_FROM_BLOCK;
+  const fromBlock =
+    opts?.fromBlock ?? (fromBlockEnv ? BigInt(fromBlockEnv) : 0n);
+
+  const logs = await publicClient.getLogs({
+    address: escrowAddress,
+    event: sessionOpenedEvent,
+    args: { user },
+    fromBlock,
+    toBlock: "latest",
+  });
+
+  const seen = new Map<string, bigint>();
+  for (const log of logs) {
+    const sid = log.args.sessionId;
+    if (sid === undefined) continue;
+    seen.set(sid.toString(), sid);
+  }
+  return [...seen.values()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/** Parse `sessionId` from a successful `openSession` transaction receipt. */
+export function parseSessionIdFromReceipt(
+  receipt: Pick<TransactionReceipt, "logs">,
+): bigint | null {
+  for (const log of receipt.logs) {
+    try {
+      const decoded = decodeEventLog({
+        abi: settlementEscrowAbi,
+        eventName: "SessionOpened",
+        data: log.data,
+        topics: log.topics,
+      });
+      const args = decoded.args as { sessionId: bigint };
+      return args.sessionId;
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 export async function settlePartial(
@@ -312,18 +422,22 @@ function normalizeSession(row: unknown): EscrowSession {
     return {
       user: getAddress(row[0] as Address),
       nodeId: row[1] as Hex,
-      tier: Number(row[2]) as SecurityTier,
-      lockedInternal: row[3] as bigint,
-      usageRecorded: row[4] as bigint,
-      paidToProviderInternal: row[5] as bigint,
-      openingInternal: row[6] as bigint,
-      openedAt: row[7] as bigint,
-      settled: Boolean(row[8]),
+      modelId: row[2] as Hex,
+      tier: Number(row[3]) as SecurityTier,
+      lockedInternal: row[4] as bigint,
+      usageRecorded: row[5] as bigint,
+      paidToProviderInternal: row[6] as bigint,
+      openingInternal: row[7] as bigint,
+      openedAt: row[8] as bigint,
+      settled: Boolean(row[9]),
+      inputTokensRecorded: (row[10] as bigint) ?? 0n,
+      outputTokensRecorded: (row[11] as bigint) ?? 0n,
     };
   }
   const s = row as {
     user: Address;
     nodeId: Hex;
+    modelId: Hex;
     tier: number | bigint;
     lockedInternal: bigint;
     usageRecorded: bigint;
@@ -331,10 +445,13 @@ function normalizeSession(row: unknown): EscrowSession {
     openingInternal: bigint;
     openedAt: bigint;
     settled: boolean;
+    inputTokensRecorded?: bigint;
+    outputTokensRecorded?: bigint;
   };
   return {
     user: getAddress(s.user),
     nodeId: s.nodeId,
+    modelId: s.modelId,
     tier: Number(s.tier) as SecurityTier,
     lockedInternal: s.lockedInternal,
     usageRecorded: s.usageRecorded,
@@ -342,5 +459,18 @@ function normalizeSession(row: unknown): EscrowSession {
     openingInternal: s.openingInternal,
     openedAt: s.openedAt,
     settled: s.settled,
+    inputTokensRecorded: s.inputTokensRecorded ?? 0n,
+    outputTokensRecorded: s.outputTokensRecorded ?? 0n,
   };
+}
+
+export async function readTeePriceMultiplierBps(
+  publicClient: PublicClient,
+  escrowAddress: Address,
+): Promise<bigint> {
+  return publicClient.readContract({
+    address: escrowAddress,
+    abi: settlementEscrowAbi,
+    functionName: "teePriceMultiplierBps",
+  }) as Promise<bigint>;
 }

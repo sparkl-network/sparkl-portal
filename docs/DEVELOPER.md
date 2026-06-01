@@ -2,6 +2,8 @@
 
 Local development setup for **sparkl-portal** against **Hub EVM** dev chains (including Anvil `31337`). On-chain contracts and Foundry tooling live in the sibling repo **[sparkl-solo](https://github.com/sparkl-network/sparkl-solo)** (`contracts/`).
 
+**Wallets and keys:** [../../docs/Wallets-and-Keys.md](../../docs/Wallets-and-Keys.md) — operator EOA, payout, libp2p `peer_id`, and what signs each on-chain action.
+
 ---
 
 ## Initial setup
@@ -46,13 +48,38 @@ The portal cannot choose accounts inside MetaMask, Coinbase Wallet, etc.—confi
 
 Use **Switch network** in the toolbar until the wallet is on **`31337`** with that RPC; then connect—the active address should be an Anvil-funded account.
 
-If **viem** reports **`Failed to fetch`** or **`withdrawDot` reverted with reason: Failed to fetch**, that is a **browser JSON-RPC HTTP failure**, not an on-chain revert. Enable the **same-origin proxy** (`NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY=1` and `RPC_PROXY_TARGET` in **`.env.example`**) so simulations and **`waitForTransactionReceipt`** use **`/api/rpc`**. The proxy adds **Private Network Access** CORS headers so **MetaMask’s extension** can `fetch` a LAN dev URL; without that, the tab may work while **`eth_sendTransaction`** still fails. Optionally set MetaMask’s network RPC to **`http://<dev-host>:3000/api/rpc`** if the extension cannot reach **`…:8545`**. With **`NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY`**, **`hubChainFromConfig`** advertises **`…/api/rpc`** as the default RPC so **Switch network** updates MetaMask to the proxy—**remove** any old **31337** entry that still points only at raw **`:8545`** if submits keep failing with **Failed to fetch**. **Dev tip:** if Next **`[rpc-proxy]`** logs show **`eth_call`** but never **`eth_sendRawTransaction`** after you confirm in MetaMask, the extension is still broadcasting to a **saved** RPC (often **`:8545`**) rather than **`…/api/rpc`**—edit or delete that network entry so the saved RPC matches your portal (**`http(s)://<host>:3000/api/rpc`**).
+### Shared testnet (`https://rpc-testnet.sparkl.network`)
+
+Pre-Paseo testing uses the same chain id **`31337`** and deterministic deploy addresses as local Anvil. In **`.env.local`**:
+
+```bash
+NEXT_PUBLIC_RPC_URL_ASSHUB_DEV_STUB=https://rpc-testnet.sparkl.network
+NEXT_PUBLIC_CHAIN_ID_ASSHUB_DEV_STUB=31337
+NEXT_PUBLIC_CHAIN_NAME_ASSHUB_DEV_STUB=Sparkl testnet
+NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY=0
+# …operator / escrow addresses from sparkl-solo/contracts/deployments/local.json
+```
+
+MetaMask and the portal both use **`https://rpc-testnet.sparkl.network`** (chain RPC). Do not point the wallet at the portal **`/api/rpc`** URL. **Fix wallet RPC** registers the HTTPS chain URL from env. The portal skips the same-origin proxy automatically for public HTTPS RPC (CORS is open on the node).
+
+Import a funded test key/mnemonic provided for that environment (not production keys).
+
+**Two RPC URLs (local dev only — do not mix them):**
+
+| Consumer | URL | Purpose |
+|----------|-----|---------|
+| Portal (`wagmi` `publicClient`) | `http(s)://<portal-host>/api/rpc` when `NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY=1` | Reads, simulate, receipts via Next → `RPC_PROXY_TARGET` |
+| MetaMask / wallets | `NEXT_PUBLIC_RPC_URL_ASSHUB_DEV_STUB` (e.g. `http://<LAN-IP>:8545`) | Sign and broadcast — **must hit the chain node**, not the portal |
+
+Enable the proxy (`NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY=1`, `RPC_PROXY_TARGET=http://127.0.0.1:8545` on the machine running Next) so the **browser tab** can read chain state without CORS to raw `:8545`. Wallets still talk to **`:8545`** directly; you will **not** see `eth_sendTransaction` in Next `[rpc-proxy]` logs after a MetaMask confirm — that is expected.
+
+If **viem** or MetaMask reports **`Failed to fetch`**, check firewall, **`anvil --host 0.0.0.0`**, and that MetaMask’s network RPC is **`…:8545`**, not the portal origin or **`/api/rpc`**. Use **Dev deposit/withdraw (Anvil)** on `/user` only as a local bypass when the extension cannot reach the node. **Fix wallet RPC** registers the chain URL from `.env`, not `/api/rpc`.
 
 ---
 
 ## Anvil restart: redeploy contracts and refresh the portal
 
-**Restarting Anvil wipes chain state.** Contract addresses, registry entries, and escrow balances from the previous run are gone. The portal will keep old **`NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_*`** and **`NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_*`** values until you update them—reads and writes may target wrong addresses or empty code.
+**Restarting Anvil wipes chain state.** Contract addresses, registry entries, and escrow balances from the previous run are gone. The portal will keep old **`NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_*`** and **`NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_*`** values until you update them—reads and writes may target wrong addresses or empty code.
 
 After every Anvil restart (or whenever you start a fresh Anvil):
 
@@ -74,7 +101,7 @@ After every Anvil restart (or whenever you start a fresh Anvil):
 
    Match **`--rpc-url`** to your Anvil URL. Override **`PRIVATE_KEY`** only if you are not using Anvil’s default deployer. The script logs **`MockOracle`**, **`MockERC20` (USDC)**, **`ProviderRegistry`**, and **`SettlementEscrow`** addresses. You can also read **`broadcast/DeployLocal.s.sol/31337/run-latest.json`** under `contracts/` for the latest broadcast.
 
-3. **Update `sparkl-portal/.env.local`** with the new **`NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_*`** and **`NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_*`** for your chain profile (and any other **`NEXT_PUBLIC_*`** addresses your profile uses—see the contracts README **sparkl-portal `.env`** examples).
+3. **Update `sparkl-portal/.env.local`** with the new **`NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_*`** and **`NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_*`** for your chain profile (and any other **`NEXT_PUBLIC_*`** addresses your profile uses—see the contracts README **sparkl-portal `.env`** examples).
 
 4. **If Solidity changed**, refresh ABIs: from **`sparkl-portal`**, run **`yarn abis:sync`** (or copy Forge outputs into **`lib/abi/`** as documented in the main [README](../README.md#contract-abis) and **`contracts/README.md`** § ABI sync).
 
@@ -84,7 +111,7 @@ After every Anvil restart (or whenever you start a fresh Anvil):
 
 ## Provider probe API (registration)
 
-The portal’s **`POST /api/provider-node-probe`** (used on **Register node**) runs server-side **`GET /status`**, **`GET /v1/models`**, and **`GET /identity`** on the operator’s HTTP origin. It does **not** call operator-private paths such as **`/details`**.
+The portal’s **`POST /api/operator-node-probe`** (used on **Register node**) runs server-side **`GET /status`**, **`GET /v1/models`**, and **`GET /identity`** on the operator’s HTTP origin. It does **not** call operator-private paths such as **`/details`**.
 
 **Registration rule:** after a successful probe, the transaction **`nodeId`** must be the **`node_id`** from **`/identity`** (Hub EVM canonical **`bytes32`** = **`keccak256(ed25519_pubkey)`** from sparkl-solo). The UI enables **Register on-chain** only when your peer-id / hex field matches that **`/identity`** payload. On-chain **`metadataURI`** is stored as versioned JSON (`version`, `baseUrl`, optional **`peer_id`** / **`node_id`**) so **`parseMetadataUri`** can recover the HTTP origin for probes and directory enrichment (**`GET /identity`** for **`peer_id`**).
 

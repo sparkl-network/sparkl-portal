@@ -88,12 +88,9 @@ function safeRpcTargetLabel(target: string): string {
 }
 
 /**
- * Dev-only JSON-RPC proxy: browser calls same-origin `/api/rpc`, Node forwards to Anvil.
- * Avoids browser "Failed to fetch" to raw `http://192.168.x.x:8545`.
- *
- * MetaMask’s extension uses cross-origin `fetch` to this URL; Chrome **Private Network Access**
- * requires **`Access-Control-Allow-Private-Network: true`** on OPTIONS/POST or preflight fails
- * (wallet shows **Failed to fetch** even when the page’s own requests work).
+ * Portal-only JSON-RPC proxy: wagmi `publicClient` calls same-origin `/api/rpc`, Node forwards
+ * to `RPC_PROXY_TARGET`. Wallets (MetaMask) must use the **chain RPC** from env (`:8545`), not
+ * this route — we do not intercept chain broadcasts.
  *
  * Set `NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY=1` and `RPC_PROXY_TARGET=http://127.0.0.1:8545`.
  * Do not expose publicly without restricting access.

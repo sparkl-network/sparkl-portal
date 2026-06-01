@@ -1,20 +1,25 @@
 import { getDefaultConfig } from "@rainbow-me/rainbowkit";
+import {
+  coinbaseWallet,
+  injectedWallet,
+  metaMaskWallet,
+  rainbowWallet,
+  walletConnectWallet,
+} from "@rainbow-me/rainbowkit/wallets";
 import { http } from "wagmi";
 
 import {
   getActiveChainConfig,
+  getActiveChainEnv,
   hubChainFromConfig,
-  walletFacingRpcUrl,
+  portalPublicRpcUrl,
+  portalRpcProxyEnabled,
 } from "@/lib/chains";
 
-function sameOriginRpcProxy(): boolean {
-  const v = process.env.NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY;
-  return v === "1" || v === "true";
-}
-
-export function getHubWagmiConfig() {
+/** @param pageOrigin Client-only: `window.location.origin` for portal `/api/rpc` transport when proxied. */
+export function getHubWagmiConfig(pageOrigin?: string) {
   const cfg = getActiveChainConfig();
-  const chain = hubChainFromConfig(cfg);
+  const chain = hubChainFromConfig(cfg, pageOrigin);
   const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
   if (!projectId) {
     throw new Error(
@@ -22,20 +27,31 @@ export function getHubWagmiConfig() {
     );
   }
 
-  const transportUrl = sameOriginRpcProxy()
-    ? walletFacingRpcUrl(cfg)
+  const transportUrl = portalRpcProxyEnabled(cfg)
+    ? portalPublicRpcUrl(cfg, pageOrigin)
     : cfg.rpcUrl;
 
-  if (sameOriginRpcProxy() && !process.env.RPC_PROXY_TARGET?.trim()) {
-    console.warn(
-      "[wagmi] NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY is set but RPC_PROXY_TARGET is missing; /api/rpc may 501.",
-    );
-  }
+  const devStub = getActiveChainEnv() === "assethub-dev-stub";
+  const wallets = devStub
+    ? [injectedWallet, metaMaskWallet]
+    : [
+        injectedWallet,
+        metaMaskWallet,
+        rainbowWallet,
+        coinbaseWallet,
+        walletConnectWallet,
+      ];
 
   return getDefaultConfig({
     appName: "Sparkl Portal",
     projectId,
     chains: [chain],
+    wallets: [
+      {
+        groupName: "Popular",
+        wallets,
+      },
+    ],
     transports: {
       [chain.id]: http(transportUrl, { timeout: 15_000 }),
     },

@@ -10,7 +10,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 **Repository:** [github.com/sparkl-network/sparkl-portal](https://github.com/sparkl-network/sparkl-portal)
 
-Next.js **Hub EVM portal** for node operators, provider directory, and consumers. Reads/writes **`ProviderRegistry`** and **`SettlementEscrow`** via wagmi/viem. Does not embed the Rust node — it talks to chain RPC and optionally HTTP-probes a solo node.
+Next.js **Hub EVM portal** for node operators, operator directory, and consumers. Reads/writes **`ProviderRegistry`** and **`SettlementEscrow`** via wagmi/viem. Does not embed the Rust node — it talks to chain RPC and optionally HTTP-probes a solo node.
 
 ## Ecosystem position
 
@@ -18,12 +18,13 @@ Next.js **Hub EVM portal** for node operators, provider directory, and consumers
 |------|----------------|
 | **sparkl-solo** | Source of truth for Solidity (`contracts/`), deploy scripts, and node HTTP API (`/identity`, `/status`, `/v1/models`) |
 | **sparkl-oracle-rates** | Independent service; portal does not run it. Escrow USDC↔DOT paths depend on on-chain rates from `RateSetter` |
+| **sparkl-oracle-model-price** | Independent service; portal reads `ModelPriceOracle` for `/model` reference pricing |
 | **Workspace** | Clone as sibling `../sparkl-solo` — see [../AGENTS.md](../AGENTS.md) |
 
 ```text
 Browser → sparkl-portal (Next.js)
             ├─ JSON-RPC → Hub EVM (Anvil / Paseo / production)
-            └─ POST /api/provider-node-probe → operator's sparkl-solo HTTP origin
+            └─ POST /api/operator-node-probe → operator's sparkl-solo HTTP origin
 sparkl-solo/contracts ──abis:sync──► sparkl-portal/lib/abi/
 ```
 
@@ -51,9 +52,10 @@ Detailed setup (wallets, RPC proxy, Anvil redeploy): **[docs/DEVELOPER.md](./doc
 ## Run with sparkl-solo (local)
 
 1. From **`sparkl-solo`**: `./scripts/launch-local.sh` (or start Anvil + `forge script script/DeployLocal.s.sol:DeployLocal --broadcast`).
-2. Copy **`providerRegistry`** and **`settlementEscrow`** from `sparkl-solo/contracts/deployments/local.json` into `.env.local`:
-   - `NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_ASSHUB_DEV_STUB`
+2. Copy **`providerRegistry`**, **`settlementEscrow`**, and **`modelPriceOracle`** from `sparkl-solo/contracts/deployments/local.json` into `.env.local`:
+   - `NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_ASSHUB_DEV_STUB`
    - `NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_ASSHUB_DEV_STUB`
+   - `NEXT_PUBLIC_MODEL_PRICE_ORACLE_ADDRESS_ASSHUB_DEV_STUB`
 3. If Solidity changed: `yarn abis:sync`
 4. Restart `yarn dev` after any `NEXT_PUBLIC_*` change.
 
@@ -74,12 +76,13 @@ If writes fail with **Failed to fetch**, enable same-origin proxy (`NEXT_PUBLIC_
 | `/` | Home |
 | `/node`, `/node/register`, `/node/[nodeId]` | Operator nodes |
 | `/node/[nodeId]/sessions` | Dev: escrow session logs |
-| `/provider`, `/provider/[operator]` | Provider directory |
-| `/c`, `/c/fund` | Consumer hub + `depositDot()` |
+| `/operator`, `/operator/[operator]` | Operator directory |
+| `/model` | Network reference model pricing (`ModelPriceOracle`) |
+| `/user` | User hub + escrow fund/withdraw (`depositDot()` / `withdrawDot()`) |
 
-Registry **`nodeId`** is **`bytes32`** (from solo `GET /identity`). Registration probe: **`POST /api/provider-node-probe`**.
+Registry **`nodeId`** is **`bytes32`** (from solo `GET /identity`). Registration probe: **`POST /api/operator-node-probe`**.
 
-SDK modules: `lib/chains.ts`, `lib/evm/registry.ts`, `lib/evm/escrow.ts`, `lib/nodeId.ts` — see [README.md](./README.md).
+SDK modules: `lib/chains.ts`, `lib/evm/registry.ts`, `lib/evm/escrow.ts`, `lib/evm/modelOracle.ts`, `lib/nodeId.ts` — see [README.md](./README.md).
 
 ## Tests and quality
 
@@ -89,7 +92,7 @@ yarn lint          # eslint
 yarn build         # production build check
 ```
 
-There is no Playwright e2e suite in-repo; manual smoke: connect wallet on `31337`, register node against a running solo instance, fund escrow on `/c/fund`.
+There is no Playwright e2e suite in-repo; manual smoke: connect wallet on `31337`, register node against a running solo instance, fund escrow on `/user`.
 
 ## ABI sync (required when contracts change)
 
@@ -105,7 +108,7 @@ Runs `scripts/sync-abis.sh` with `SPARKL_SOLO` defaulting to `../../sparkl-solo`
 - **Next.js 16** — this repo may differ from older Next training data; read `node_modules/next/dist/docs/` for deprecations (see nextjs-agent-rules block above).
 - **React 19** with CDS peer warnings possible — smoke-test after dependency bumps.
 
-Funding semantics: `/c/fund` uses **`SettlementEscrow.depositDot()`**; `NEXT_PUBLIC_NATIVE_*` must match **`nativeDotDecimals`** on the deployed escrow — see README § Funding semantics.
+Funding semantics: `/user` uses **`SettlementEscrow.depositDot()`**; `NEXT_PUBLIC_NATIVE_*` must match **`nativeDotDecimals`** on the deployed escrow — see README § Funding semantics.
 
 ## Contributing
 

@@ -101,30 +101,6 @@
   },
   {
     "type": "function",
-    "name": "getPricePer1k",
-    "inputs": [
-      {
-        "name": "nodeId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "tier",
-        "type": "uint8",
-        "internalType": "enum SecurityTier"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "getProvider",
     "inputs": [
       {
@@ -511,29 +487,6 @@
   },
   {
     "type": "function",
-    "name": "setNodePricing",
-    "inputs": [
-      {
-        "name": "nodeId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "tier",
-        "type": "uint8",
-        "internalType": "enum SecurityTier"
-      },
-      {
-        "name": "pricePer1kTokens",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setSettlementEscrow",
     "inputs": [
       {
@@ -861,31 +814,6 @@
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "PricingUpdated",
-    "inputs": [
-      {
-        "name": "nodeId",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "tier",
-        "type": "uint8",
-        "indexed": false,
-        "internalType": "enum SecurityTier"
-      },
-      {
-        "name": "pricePer1kTokens",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false

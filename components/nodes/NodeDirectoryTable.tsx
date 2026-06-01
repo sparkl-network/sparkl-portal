@@ -120,7 +120,6 @@ export function NodeDirectoryTable({
             scope="col"
             title="Node"
             width={opCol ? "26%" : "32%"}
-            dangerouslySetHtmlWidth={opCol ? "26%" : "32%"}
           />
           {opCol ? (
             <TableCell
@@ -128,7 +127,6 @@ export function NodeDirectoryTable({
               scope="col"
               title="Operator"
               width="18%"
-              dangerouslySetHtmlWidth="18%"
             />
           ) : null}
           <TableCell
@@ -136,7 +134,6 @@ export function NodeDirectoryTable({
             scope="col"
             title="Status"
             width={opCol ? "12%" : "14%"}
-            dangerouslySetHtmlWidth={opCol ? "12%" : "14%"}
           />
           <TableCell
             as="th"
@@ -144,7 +141,6 @@ export function NodeDirectoryTable({
             title="Fee"
             justifyContent="flex-end"
             width={opCol ? "10%" : "12%"}
-            dangerouslySetHtmlWidth={opCol ? "10%" : "12%"}
           />
           <TableCell
             as="th"
@@ -152,7 +148,6 @@ export function NodeDirectoryTable({
             title="Payout"
             justifyContent="flex-end"
             width={opCol ? "14%" : "18%"}
-            dangerouslySetHtmlWidth={opCol ? "14%" : "18%"}
           />
           <TableCell
             as="th"
@@ -160,7 +155,6 @@ export function NodeDirectoryTable({
             title="TEE / BE"
             justifyContent="flex-end"
             width={opCol ? "12%" : "14%"}
-            dangerouslySetHtmlWidth={opCol ? "12%" : "14%"}
           />
           <TableCell
             as="th"
@@ -168,7 +162,6 @@ export function NodeDirectoryTable({
             title="Open"
             justifyContent="flex-end"
             width={opCol ? "8%" : "10%"}
-            dangerouslySetHtmlWidth={opCol ? "8%" : "10%"}
           />
         </TableRow>
       </TableHeader>

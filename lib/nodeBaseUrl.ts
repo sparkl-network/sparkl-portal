@@ -22,6 +22,10 @@ export type ParsedMetadataUri = {
   baseUrl: string;
   /** Full on-chain string (JSON or legacy URL). */
   raw: string;
+  /** Software/mock TPM `peer_id` from registration JSON, when present. */
+  peerId?: string;
+  /** Canonical `node_id` (`0x` + 64 hex) from registration JSON, when present. */
+  nodeId?: string;
 };
 
 /**
@@ -32,10 +36,24 @@ export function parseMetadataUri(raw: string): ParsedMetadataUri | null {
   if (!t) return null;
   if (t.startsWith("{")) {
     try {
-      const o = JSON.parse(t) as { baseUrl?: unknown };
+      const o = JSON.parse(t) as {
+        baseUrl?: unknown;
+        peer_id?: unknown;
+        node_id?: unknown;
+      };
       if (typeof o.baseUrl === "string") {
         const baseUrl = normalizeNodeBaseUrl(o.baseUrl);
-        if (baseUrl) return { baseUrl, raw: t };
+        if (baseUrl) {
+          const peerId =
+            typeof o.peer_id === "string" && o.peer_id.trim()
+              ? o.peer_id.trim()
+              : undefined;
+          const nodeId =
+            typeof o.node_id === "string" && o.node_id.trim()
+              ? o.node_id.trim()
+              : undefined;
+          return { baseUrl, raw: t, peerId, nodeId };
+        }
       }
     } catch {
       return null;
@@ -50,6 +68,11 @@ export function parseMetadataUri(raw: string): ParsedMetadataUri | null {
 /** HTTP origin for node probes; `null` if invalid. */
 export function metadataUriToBaseUrl(uri: string): string | null {
   return parseMetadataUri(uri)?.baseUrl ?? null;
+}
+
+/** `peer_id` from versioned registration JSON (`metadataURI`), if stored on-chain. */
+export function softwarePeerIdFromMetadataUri(raw: string): string | null {
+  return parseMetadataUri(raw)?.peerId ?? null;
 }
 
 /**

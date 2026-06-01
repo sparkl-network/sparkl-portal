@@ -20,6 +20,7 @@ export const ZERO_ADDRESS =
 /** Avoid spamming the console when many hooks/modules call `getActiveChainConfig`. */
 let warnedStubRegistryFallback = false;
 let warnedStubEscrowFallback = false;
+let warnedStubModelOracleFallback = false;
 
 function isValidEthAddress(v: string | undefined): v is `0x${string}` {
   return typeof v === "string" && /^0x[0-9a-fA-F]{40}$/.test(v);
@@ -95,8 +96,9 @@ export type HubChainConfig = {
   rpcUrl: string;
   /** Native gas token as shown in the wallet (`wallet_addEthereumChain` / viem `Chain`). */
   nativeCurrency: HubNativeCurrency;
-  providerRegistryAddress: `0x${string}`;
+  operatorRegistryAddress: `0x${string}`;
   settlementEscrowAddress: `0x${string}`;
+  modelPriceOracleAddress: `0x${string}`;
 };
 
 const STUB_DEFAULTS = {
@@ -117,32 +119,43 @@ export function getActiveChainConfig(): HubChainConfig {
   let rpcUrl: string | undefined;
   let chainIdRaw: string | undefined;
   let chainName: string;
-  let providerRegistryRaw: string | undefined;
+  let operatorRegistryRaw: string | undefined;
   let settlementEscrowRaw: string | undefined;
+  let modelPriceOracleRaw: string | undefined;
 
   if (chainEnv === "assethub-dev-stub") {
-    chainName = STUB_DEFAULTS.chainName;
+    chainName =
+      trimEnv(process.env.NEXT_PUBLIC_CHAIN_NAME_ASSHUB_DEV_STUB) ??
+      STUB_DEFAULTS.chainName;
     rpcUrl =
       trimEnv(process.env.NEXT_PUBLIC_RPC_URL_ASSHUB_DEV_STUB) ??
       STUB_DEFAULTS.rpcUrl;
     chainIdRaw =
       trimEnv(process.env.NEXT_PUBLIC_CHAIN_ID_ASSHUB_DEV_STUB) ??
       String(STUB_DEFAULTS.chainId);
-    providerRegistryRaw = trimEnv(
-      process.env.NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_ASSHUB_DEV_STUB,
+    operatorRegistryRaw = trimEnv(
+      process.env.NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_ASSHUB_DEV_STUB ??
+        process.env.NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_ASSHUB_DEV_STUB,
     );
     settlementEscrowRaw = trimEnv(
       process.env.NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_ASSHUB_DEV_STUB,
+    );
+    modelPriceOracleRaw = trimEnv(
+      process.env.NEXT_PUBLIC_MODEL_PRICE_ORACLE_ADDRESS_ASSHUB_DEV_STUB,
     );
   } else if (chainEnv === "paseo") {
     chainName = "Paseo Hub EVM";
     rpcUrl = trimEnv(process.env.NEXT_PUBLIC_RPC_URL_PASEO);
     chainIdRaw = trimEnv(process.env.NEXT_PUBLIC_CHAIN_ID_PASEO);
-    providerRegistryRaw = trimEnv(
-      process.env.NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_PASEO,
+    operatorRegistryRaw = trimEnv(
+      process.env.NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_PASEO ??
+        process.env.NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_PASEO,
     );
     settlementEscrowRaw = trimEnv(
       process.env.NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_PASEO,
+    );
+    modelPriceOracleRaw = trimEnv(
+      process.env.NEXT_PUBLIC_MODEL_PRICE_ORACLE_ADDRESS_PASEO,
     );
     if (!rpcUrl)
       throw new Error(
@@ -156,11 +169,15 @@ export function getActiveChainConfig(): HubChainConfig {
     chainName = "Asset Hub Polkadot";
     rpcUrl = trimEnv(process.env.NEXT_PUBLIC_RPC_URL_POLKADOT);
     chainIdRaw = trimEnv(process.env.NEXT_PUBLIC_CHAIN_ID_POLKADOT);
-    providerRegistryRaw = trimEnv(
-      process.env.NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_POLKADOT,
+    operatorRegistryRaw = trimEnv(
+      process.env.NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_POLKADOT ??
+        process.env.NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_POLKADOT,
     );
     settlementEscrowRaw = trimEnv(
       process.env.NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_POLKADOT,
+    );
+    modelPriceOracleRaw = trimEnv(
+      process.env.NEXT_PUBLIC_MODEL_PRICE_ORACLE_ADDRESS_POLKADOT,
     );
     if (!rpcUrl)
       throw new Error(
@@ -177,11 +194,12 @@ export function getActiveChainConfig(): HubChainConfig {
     throw new Error(`Invalid chain id for env ${chainEnv}: ${chainIdRaw}`);
   }
 
-  let providerRegistryAddress: `0x${string}`;
+  let operatorRegistryAddress: `0x${string}`;
   let settlementEscrowAddress: `0x${string}`;
+  let modelPriceOracleAddress: `0x${string}`;
 
   if (chainEnv === "assethub-dev-stub") {
-    if (!isValidEthAddress(providerRegistryRaw)) {
+    if (!isValidEthAddress(operatorRegistryRaw)) {
       if (
         typeof process !== "undefined" &&
         process.env.NODE_ENV === "development" &&
@@ -189,12 +207,12 @@ export function getActiveChainConfig(): HubChainConfig {
       ) {
         warnedStubRegistryFallback = true;
         console.warn(
-          `[chains] NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_ASSHUB_DEV_STUB missing or invalid; using ${ZERO_ADDRESS} for local stub.`,
+          `[chains] NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_ASSHUB_DEV_STUB missing or invalid; using ${ZERO_ADDRESS} for local stub.`,
         );
       }
-      providerRegistryAddress = ZERO_ADDRESS;
+      operatorRegistryAddress = ZERO_ADDRESS;
     } else {
-      providerRegistryAddress = providerRegistryRaw;
+      operatorRegistryAddress = operatorRegistryRaw;
     }
     if (!isValidEthAddress(settlementEscrowRaw)) {
       if (
@@ -211,12 +229,27 @@ export function getActiveChainConfig(): HubChainConfig {
     } else {
       settlementEscrowAddress = settlementEscrowRaw;
     }
+    if (!isValidEthAddress(modelPriceOracleRaw)) {
+      if (
+        typeof process !== "undefined" &&
+        process.env.NODE_ENV === "development" &&
+        !warnedStubModelOracleFallback
+      ) {
+        warnedStubModelOracleFallback = true;
+        console.warn(
+          `[chains] NEXT_PUBLIC_MODEL_PRICE_ORACLE_ADDRESS_ASSHUB_DEV_STUB missing or invalid; using ${ZERO_ADDRESS} for local stub.`,
+        );
+      }
+      modelPriceOracleAddress = ZERO_ADDRESS;
+    } else {
+      modelPriceOracleAddress = modelPriceOracleRaw;
+    }
   } else {
-    if (!isValidEthAddress(providerRegistryRaw)) {
+    if (!isValidEthAddress(operatorRegistryRaw)) {
       throw new Error(
         chainEnv === "paseo"
-          ? "NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_PASEO must be a valid 0x-prefixed 20-byte hex address"
-          : "NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_POLKADOT must be a valid 0x-prefixed 20-byte hex address",
+          ? "NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_PASEO must be a valid 0x-prefixed 20-byte hex address"
+          : "NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_POLKADOT must be a valid 0x-prefixed 20-byte hex address",
       );
     }
     if (!isValidEthAddress(settlementEscrowRaw)) {
@@ -226,8 +259,13 @@ export function getActiveChainConfig(): HubChainConfig {
           : "NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_POLKADOT must be a valid 0x-prefixed 20-byte hex address",
       );
     }
-    providerRegistryAddress = providerRegistryRaw;
+    operatorRegistryAddress = operatorRegistryRaw;
     settlementEscrowAddress = settlementEscrowRaw;
+    if (!isValidEthAddress(modelPriceOracleRaw)) {
+      modelPriceOracleAddress = ZERO_ADDRESS;
+    } else {
+      modelPriceOracleAddress = modelPriceOracleRaw;
+    }
   }
 
   const nativeCurrency = hubNativeCurrencyForEnv(chainEnv);
@@ -238,42 +276,115 @@ export function getActiveChainConfig(): HubChainConfig {
     chainName,
     rpcUrl,
     nativeCurrency,
-    providerRegistryAddress,
+    operatorRegistryAddress,
     settlementEscrowAddress,
+    modelPriceOracleAddress,
   };
 }
 
-function sameOriginRpcProxyEnabled(): boolean {
-  const v = process.env.NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY;
-  return v === "1" || v === "true";
+function readSameOriginProxyEnv(): boolean | undefined {
+  const v = trimEnv(process.env.NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY);
+  if (v === "1" || v === "true") return true;
+  if (v === "0" || v === "false") return false;
+  return undefined;
+}
+
+let warnedPublicRpcProxySkipped = false;
+
+/** Public HTTPS hub RPC (e.g. https://rpc-testnet.sparkl.network) — browsers and MetaMask can call it directly. */
+export function isPublicHttpsChainRpc(rpcUrl: string): boolean {
+  try {
+    const u = new URL(rpcUrl);
+    return u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Local Anvil / private HTTP only — dev impersonation and optional portal proxy. */
+export function isLocalDevChainRpc(rpcUrl: string): boolean {
+  try {
+    const u = new URL(rpcUrl);
+    if (u.protocol !== "http:") return false;
+    const h = u.hostname;
+    if (h === "localhost" || h === "127.0.0.1") return true;
+    const m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (!m) return false;
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 10) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * RPC URL on the viem `Chain` for **`wallet_addEthereumChain`** / MetaMask.
- * With **`NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY`**, this is **`…/api/rpc`** so the extension
- * can reach JSON-RPC like the page; otherwise MetaMask may **`Failed to fetch`** on **`eth_sendTransaction`**
- * while viem still works via the proxy transport.
- *
- * **Broadcast vs reads:** the app’s wagmi `publicClient` always uses this URL (when the proxy is on), so
- * **`eth_call`** / **`eth_blockNumber`** show up in the Next **`/api/rpc`** logs. MetaMask **submits**
- * **`eth_sendRawTransaction`** to the RPC URL **saved for that chain id** inside the extension. If you
- * had already added **31337** (or your chain) with **`http://127.0.0.1:8545`**, **`wallet_switchEthereumChain`**
- * will **not** replace that RPC — confirms will hit **8545** and you will **not** see a send in the Next
- * terminal. **Fix:** MetaMask → Settings → Networks → edit the network → set RPC to **`http(s)://<same host
- * you use for the portal>/api/rpc`**, or remove the network and let the app re-add it via **Switch network**.
+ * Whether the portal should use same-origin `/api/rpc` for wagmi reads.
+ * Off by default for public HTTPS chain RPC; on for local HTTP unless explicitly disabled.
  */
-export function walletFacingRpcUrl(cfg: HubChainConfig): string {
-  if (!sameOriginRpcProxyEnabled()) {
+export function portalRpcProxyEnabled(cfg: HubChainConfig): boolean {
+  const explicit = readSameOriginProxyEnv();
+  if (isPublicHttpsChainRpc(cfg.rpcUrl)) {
+    if (explicit === true) {
+      if (
+        typeof process !== "undefined" &&
+        process.env.NODE_ENV === "development" &&
+        !warnedPublicRpcProxySkipped
+      ) {
+        warnedPublicRpcProxySkipped = true;
+        console.warn(
+          `[chains] NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY=1 ignored for public HTTPS chain RPC ${cfg.rpcUrl}. Portal and MetaMask use the chain URL directly.`,
+        );
+      }
+    }
+    return false;
+  }
+  if (explicit !== undefined) return explicit;
+  return isLocalDevChainRpc(cfg.rpcUrl);
+}
+
+/**
+ * Canonical hub node JSON-RPC (`NEXT_PUBLIC_RPC_URL_*`). MetaMask and other wallets must use this
+ * URL to sign and broadcast — not the portal `/api/rpc` proxy.
+ */
+export function chainRpcUrl(cfg: HubChainConfig): string {
+  return cfg.rpcUrl;
+}
+
+/**
+ * JSON-RPC URL for the portal’s wagmi `publicClient` only (reads, simulate, receipts).
+ * When **`NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY`** is on, the browser talks to same-origin
+ * **`/api/rpc`** and Next forwards to **`RPC_PROXY_TARGET`**; chain submits never go through here.
+ */
+export function portalPublicRpcUrl(
+  cfg: HubChainConfig,
+  pageOrigin?: string,
+): string {
+  if (!portalRpcProxyEnabled(cfg)) {
     return cfg.rpcUrl;
+  }
+  const origin =
+    pageOrigin ??
+    (typeof window !== "undefined" ? window.location.origin : undefined);
+  if (origin) {
+    return `${origin}/api/rpc`;
   }
   const fixed = process.env.NEXT_PUBLIC_RPC_PUBLIC_PROXY_URL?.trim();
   if (fixed) {
     return fixed;
   }
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}/api/rpc`;
-  }
   return cfg.rpcUrl;
+}
+
+/** @deprecated Use {@link portalPublicRpcUrl} or {@link chainRpcUrl} explicitly. */
+export function walletFacingRpcUrl(
+  cfg: HubChainConfig,
+  pageOrigin?: string,
+): string {
+  return portalPublicRpcUrl(cfg, pageOrigin);
 }
 
 /**
@@ -281,13 +392,16 @@ export function walletFacingRpcUrl(cfg: HubChainConfig): string {
  * `nativeCurrency` comes from `HubChainConfig` (env‑driven); it must match **`SettlementEscrow.nativeDotDecimals`**
  * and the wallet’s custom network, or `depositDot` amounts will not line up in the approval UI.
  */
-export function hubChainFromConfig(cfg: HubChainConfig): Chain {
+export function hubChainFromConfig(
+  cfg: HubChainConfig,
+  pageOrigin?: string,
+): Chain {
   return defineChain({
     id: cfg.chainId,
     name: cfg.chainName,
     nativeCurrency: cfg.nativeCurrency,
     rpcUrls: {
-      default: { http: [walletFacingRpcUrl(cfg)] },
+      default: { http: [chainRpcUrl(cfg)] },
     },
   });
 }

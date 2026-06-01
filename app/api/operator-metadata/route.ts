@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Server-side JSON fetch for the provider directory (avoids browser CORS).
+ * Server-side JSON fetch for the operator directory (avoids browser CORS).
  * For a registry node, pass `registryMetadataUriToFetchUrl(metadataURI)` (bare origins → `…/details` for legacy directory fields).
  * JSON may include `region` or `geo.region`.
  */

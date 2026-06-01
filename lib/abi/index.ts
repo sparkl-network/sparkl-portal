@@ -2,6 +2,7 @@ import type { Abi } from "viem";
 
 import settlementEscrowJson from "./SettlementEscrow.json";
 import providerRegistryJson from "./ProviderRegistry.json";
+import modelPriceOracleJson from "./ModelPriceOracle.json";
 
 /**
  * Normalize Foundry/Hardhat artifacts (`{ abi, bytecode, ... }`) vs bare ABI arrays.
@@ -17,8 +18,9 @@ function asContractAbi(json: unknown): Abi {
 }
 
 /**
- * Imported JSON keeps Solidity names (e.g. **`getProvider`**, **`registerNode`**).
- * In app copy and mental model: **`getProvider(nodeId)`** ≡ **read node info** for that **`nodeId`** (`NodeInfo`).
+ * `ProviderRegistry` contract ABI (Solidity name unchanged).
+ * **`getNode(nodeId)`** ≡ read **`NodeInfo`** for that node.
  */
-export const providerRegistryAbi = asContractAbi(providerRegistryJson);
+export const operatorRegistryAbi = asContractAbi(providerRegistryJson);
 export const settlementEscrowAbi = asContractAbi(settlementEscrowJson);
+export const modelPriceOracleAbi = asContractAbi(modelPriceOracleJson);

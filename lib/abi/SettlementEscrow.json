@@ -13,6 +13,11 @@
         "internalType": "contract IPriceOracle"
       },
       {
+        "name": "modelPriceOracle_",
+        "type": "address",
+        "internalType": "contract IModelPriceOracle"
+      },
+      {
         "name": "usdc_",
         "type": "address",
         "internalType": "contract IERC20"
@@ -125,6 +130,19 @@
   },
   {
     "type": "function",
+    "name": "modelPriceOracle",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IModelPriceOracle"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "nativeDotDecimals",
     "inputs": [],
     "outputs": [
@@ -162,6 +180,11 @@
         "name": "tier",
         "type": "uint8",
         "internalType": "enum SecurityTier"
+      },
+      {
+        "name": "modelId",
+        "type": "bytes32",
+        "internalType": "bytes32"
       },
       {
         "name": "amountInternal",
@@ -233,7 +256,12 @@
         "internalType": "uint256"
       },
       {
-        "name": "usageDeltaInternal",
+        "name": "inputTokensDelta",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "outputTokensDelta",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -276,6 +304,11 @@
         "internalType": "bytes32"
       },
       {
+        "name": "modelId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
         "name": "tier",
         "type": "uint8",
         "internalType": "enum SecurityTier"
@@ -309,6 +342,16 @@
         "name": "settled",
         "type": "bool",
         "internalType": "bool"
+      },
+      {
+        "name": "inputTokensRecorded",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "outputTokensRecorded",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -321,6 +364,19 @@
         "name": "next",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setTeePriceMultiplierBps",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -427,6 +483,19 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "teePriceMultiplierBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -623,6 +692,12 @@
         "internalType": "enum SecurityTier"
       },
       {
+        "name": "modelId",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
         "name": "lockedInternal",
         "type": "uint256",
         "indexed": false,
@@ -652,12 +727,43 @@
   },
   {
     "type": "event",
+    "name": "TeePriceMultiplierUpdated",
+    "inputs": [
+      {
+        "name": "previousBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "nextBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "UsageRecorded",
     "inputs": [
       {
         "name": "sessionId",
         "type": "uint256",
         "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "inputTokensDelta",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "outputTokensDelta",
+        "type": "uint256",
+        "indexed": false,
         "internalType": "uint256"
       },
       {
@@ -712,6 +818,16 @@
   {
     "type": "error",
     "name": "BadSettleSplit",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadTeeMultiplier",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadTokenDelta",
     "inputs": []
   },
   {

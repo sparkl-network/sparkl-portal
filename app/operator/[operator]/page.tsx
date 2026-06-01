@@ -8,7 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import NextLink from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo } from "react";
-import { formatUnits, getAddress, isAddress, zeroHash } from "viem";
+import { getAddress, isAddress, zeroHash } from "viem";
 import { useAccount, useChainId, usePublicClient } from "wagmi";
 
 import { ZERO_ADDRESS } from "@/lib/chains";
@@ -21,7 +21,7 @@ function teeProofSubmitted(hash: `0x${string}`): boolean {
   return hash.toLowerCase() !== zeroHash.toLowerCase();
 }
 
-export default function ProviderDetailPage() {
+export default function OperatorDetailPage() {
   const params = useParams();
   const raw =
     typeof params.operator === "string"
@@ -48,22 +48,10 @@ export default function ProviderDetailPage() {
   const chainMatches = Boolean(hubConfig && chainId === hubConfig.chainId);
   const registryUnset = Boolean(
     !hubConfig ||
-      !hubConfig.providerRegistryAddress ||
-      hubConfig.providerRegistryAddress.toLowerCase() ===
+      !hubConfig.operatorRegistryAddress ||
+      hubConfig.operatorRegistryAddress.toLowerCase() ===
         ZERO_ADDRESS.toLowerCase(),
   );
-
-  const dotLabel = hubConfig?.nativeCurrency.symbol ?? "DOT";
-  const dec = hubConfig?.nativeCurrency.decimals ?? 10;
-
-  const formatTierPrice = (wei: bigint | null) => {
-    if (wei === null) return "—";
-    try {
-      return `${formatUnits(wei, dec)} ${dotLabel} / 1k`;
-    } catch {
-      return "—";
-    }
-  };
 
   const {
     data,
@@ -71,9 +59,9 @@ export default function ProviderDetailPage() {
     isFetching,
   } = useQuery({
     queryKey: [
-      "providerDetail",
+      "operatorDetail",
       hubConfig?.chainId,
-      hubConfig?.providerRegistryAddress,
+      hubConfig?.operatorRegistryAddress,
       operatorAddress,
     ],
     queryFn: async () => {
@@ -82,7 +70,7 @@ export default function ProviderDetailPage() {
       }
       const rows = await getOperatorNodeDetailRows(
         publicClient,
-        hubConfig.providerRegistryAddress,
+        hubConfig.operatorRegistryAddress,
         operatorAddress,
       );
 
@@ -97,7 +85,7 @@ export default function ProviderDetailPage() {
           }
           try {
             const r = await fetch(
-              `/api/provider-metadata?url=${encodeURIComponent(fetchUrl)}`,
+              `/api/operator-metadata?url=${encodeURIComponent(fetchUrl)}`,
             );
             const j: unknown = await r.json();
             const region =
@@ -135,8 +123,8 @@ export default function ProviderDetailPage() {
   return (
     <Box paddingX={3} paddingY={3}>
       <VStack gap={3}>
-        <Link as={NextLink} href="/provider" font="body" underline={false}>
-          ← Providers
+        <Link as={NextLink} href="/operator" font="body" underline={false}>
+          ← Operators
         </Link>
 
         {!operatorAddress ? (
@@ -162,7 +150,7 @@ export default function ProviderDetailPage() {
 
         {hubConfig && registryUnset && !configError ? (
           <Banner variant="error" startIcon="warning" showDismiss={false} title="Registry missing">
-            <Text font="body">Set ProviderRegistry in env and restart.</Text>
+            <Text font="body">Set ProviderRegistry contract in env and restart.</Text>
           </Banner>
         ) : null}
 
@@ -230,12 +218,22 @@ export default function ProviderDetailPage() {
           />
         </Box>
 
+        {operatorAddress ? (
+          <Link
+            as={NextLink}
+            href={`/operator/${operatorAddress}/node`}
+            font="body"
+          >
+            View all nodes (table) →
+          </Link>
+        ) : null}
+
         {rows.length > 0 ? (
           <VStack gap={2} alignItems="stretch" width="100%">
             <Text font="label2" color="fgMuted">
               Nodes
             </Text>
-            {rows.map(({ nodeId, info, bestEffortPrice, teePrice }) => {
+            {rows.map(({ nodeId, info }) => {
               const registered =
                 info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
               const region =
@@ -271,10 +269,6 @@ export default function ProviderDetailPage() {
                   </HStack>
 
                   <VStack gap={1} paddingTop={2}>
-                    <Text font="caption" color="fgMuted">
-                      Best Effort: {formatTierPrice(bestEffortPrice)} · TEE:{" "}
-                      {formatTierPrice(teePrice)}
-                    </Text>
                     <Text font="caption" color="fgMuted">
                       TEE advertised: {info.supportsTEE ? "yes" : "no"} · proof:{" "}
                       {teeProofSubmitted(info.teeReportHash) ? "set" : "none"}

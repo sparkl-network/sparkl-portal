@@ -5,16 +5,18 @@ import {
   type WalletClient,
   getAddress,
   parseAbiItem,
+  zeroHash,
 } from "viem";
 
-import { providerRegistryAbi } from "@/lib/abi";
+import { operatorRegistryAbi } from "@/lib/abi";
 import { ZERO_ADDRESS } from "@/lib/chains";
+import { softwarePeerIdFromMetadataUri } from "@/lib/nodeBaseUrl";
 import { parseNodeIdInput } from "@/lib/nodeId";
 import {
   type OperatorDirectoryEntry,
   type OperatorNodeDetailRow,
-  type ProviderInfo,
-  type RegisteredProvider,
+  type NodeInfo,
+  type RegisteredNode,
   NodeLifecycle,
   SecurityTier,
 } from "@/lib/types";
@@ -25,21 +27,24 @@ const nodeRegisteredEvent = parseAbiItem(
 );
 
 /**
- * Read **`NodeInfo`** for `nodeId`. ABI function name remains **`getProvider`**; treat as **`getNode(nodeId)`** in UI and docs.
+ * Read on-chain **`NodeInfo`** for `nodeId` (ABI function **`getProvider`**).
  */
-export async function getProvider(
+export async function getNode(
   publicClient: PublicClient,
   registryAddress: Address,
   nodeId: Hex,
-): Promise<ProviderInfo> {
+): Promise<NodeInfo> {
   const row = await publicClient.readContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "getProvider",
     args: [nodeId],
   });
-  return normalizeProviderInfo(row);
+  return normalizeNodeInfo(row);
 }
+
+/** @deprecated Use {@link getNode}. */
+export const getProvider = getNode;
 
 export async function getNodeOperator(
   publicClient: PublicClient,
@@ -48,7 +53,7 @@ export async function getNodeOperator(
 ): Promise<Address> {
   const raw = await publicClient.readContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "nodeOperator",
     args: [nodeId],
   });
@@ -62,7 +67,7 @@ export async function getMetadataURI(
 ): Promise<string> {
   const raw = await publicClient.readContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "getMetadataURI",
     args: [nodeId],
   });
@@ -77,54 +82,49 @@ export async function supportsTier(
 ): Promise<boolean> {
   const raw = await publicClient.readContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "supportsTier",
     args: [nodeId, tier],
   });
   return raw as boolean;
 }
 
-export async function getPricePer1k(
-  publicClient: PublicClient,
-  registryAddress: Address,
-  nodeId: Hex,
-  tier: SecurityTier,
-): Promise<bigint> {
-  const raw = await publicClient.readContract({
-    address: registryAddress,
-    abi: providerRegistryAbi,
-    functionName: "getPricePer1k",
-    args: [nodeId, tier],
-  });
-  return raw as bigint;
-}
-
-/** Node pricing per tier; thin wrapper over {@link getPricePer1k}. */
-export async function getNodePricePer1k(
-  publicClient: PublicClient,
-  registryAddress: Address,
-  nodeId: Hex,
-  tier: SecurityTier,
-): Promise<bigint> {
-  return getPricePer1k(publicClient, registryAddress, nodeId, tier);
-}
-
-function resolveProviderRegistryFromBlock(opts?: { fromBlock?: bigint }): bigint {
+function resolveOperatorRegistryFromBlock(opts?: { fromBlock?: bigint }): bigint {
   if (opts?.fromBlock !== undefined) return opts.fromBlock;
-  const fromBlockEnv = process.env.NEXT_PUBLIC_PROVIDER_REGISTRY_FROM_BLOCK;
+  const fromBlockEnv =
+    process.env.NEXT_PUBLIC_OPERATOR_REGISTRY_FROM_BLOCK ??
+    process.env.NEXT_PUBLIC_PROVIDER_REGISTRY_FROM_BLOCK;
   return fromBlockEnv ? BigInt(fromBlockEnv) : 0n;
 }
 
 /**
  * Unique operator addresses that have emitted `NodeRegistered` (or dev list → `nodeOperator` per node).
- * Uses the same from-block env as {@link getAllProviders} unless overridden.
+ * Uses the same from-block env as {@link getAllRegisteredNodes} unless overridden.
  */
+/** How many `NodeRegistered` logs exist (for empty-state diagnostics). */
+export async function countNodeRegisteredLogs(
+  publicClient: PublicClient,
+  registryAddress: Address,
+  opts?: { fromBlock?: bigint },
+): Promise<bigint> {
+  const fromBlock = resolveOperatorRegistryFromBlock(opts);
+  const logs = await publicClient.getLogs({
+    address: registryAddress,
+    event: nodeRegisteredEvent,
+    fromBlock,
+    toBlock: "latest",
+  });
+  return BigInt(logs.length);
+}
+
 export async function getRegisteredOperatorAddresses(
   publicClient: PublicClient,
   registryAddress: Address,
   opts?: { fromBlock?: bigint },
 ): Promise<Address[]> {
-  const rawList = process.env.NEXT_PUBLIC_DEV_PROVIDER_ADDRESSES;
+  const rawList =
+    process.env.NEXT_PUBLIC_DEV_OPERATOR_NODE_ADDRESSES ??
+    process.env.NEXT_PUBLIC_DEV_PROVIDER_ADDRESSES;
   if (rawList?.trim()) {
     const ids = rawList
       .split(",")
@@ -143,7 +143,7 @@ export async function getRegisteredOperatorAddresses(
     );
   }
 
-  const fromBlock = resolveProviderRegistryFromBlock(opts);
+  const fromBlock = resolveOperatorRegistryFromBlock(opts);
   const logs = await publicClient.getLogs({
     address: registryAddress,
     event: nodeRegisteredEvent,
@@ -189,7 +189,7 @@ export async function getOperatorDirectoryEntries(
     let teeCapableNodeCount = 0;
 
     for (const nodeId of nodeIds) {
-      const info = await getProvider(publicClient, registryAddress, nodeId);
+      const info = await getNode(publicClient, registryAddress, nodeId);
       const registered =
         info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
       if (
@@ -214,7 +214,7 @@ export async function getOperatorDirectoryEntries(
 }
 
 /**
- * All nodes for `operator` with pricing reads (for detail UI).
+ * All nodes for `operator` (for detail UI).
  */
 export async function getOperatorNodeDetailRows(
   publicClient: PublicClient,
@@ -229,36 +229,8 @@ export async function getOperatorNodeDetailRows(
 
   const rows: OperatorNodeDetailRow[] = [];
   for (const nodeId of nodeIds) {
-    const info = await getProvider(publicClient, registryAddress, nodeId);
-    const registered =
-      info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
-
-    let bestEffortPrice: bigint | null = null;
-    let teePrice: bigint | null = null;
-    if (registered) {
-      try {
-        bestEffortPrice = await getNodePricePer1k(
-          publicClient,
-          registryAddress,
-          nodeId,
-          SecurityTier.BEST_EFFORT,
-        );
-      } catch {
-        bestEffortPrice = null;
-      }
-      try {
-        teePrice = await getNodePricePer1k(
-          publicClient,
-          registryAddress,
-          nodeId,
-          SecurityTier.TEE_VERIFIED,
-        );
-      } catch {
-        teePrice = null;
-      }
-    }
-
-    rows.push({ nodeId, info, bestEffortPrice, teePrice });
+    const info = await getNode(publicClient, registryAddress, nodeId);
+    rows.push({ nodeId, info });
   }
 
   return rows.sort((a, b) => a.nodeId.localeCompare(b.nodeId));
@@ -274,7 +246,7 @@ export async function getOperatorNodes(
 ): Promise<Hex[]> {
   const raw = await publicClient.readContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "operatorNodes",
     args: [getAddress(operator)],
   });
@@ -290,6 +262,8 @@ export async function registerNode(
     supportsBestEffort: boolean;
     supportsTEE: boolean;
     metadataURI: string;
+    /** X25519 pubkey as bytes32; `zeroHash` opts out (on-chain encryption key v1). */
+    initialEncryptionPubkey?: Hex;
   },
 ): Promise<`0x${string}`> {
   const account = walletClient.account;
@@ -299,7 +273,7 @@ export async function registerNode(
 
   return walletClient.writeContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "registerNode",
     args: [
       params.nodeId,
@@ -307,29 +281,8 @@ export async function registerNode(
       params.supportsBestEffort,
       params.supportsTEE,
       params.metadataURI,
+      params.initialEncryptionPubkey ?? zeroHash,
     ],
-    account,
-    chain,
-  });
-}
-
-export async function setNodePricing(
-  walletClient: WalletClient,
-  registryAddress: Address,
-  nodeId: Hex,
-  tier: SecurityTier,
-  pricePer1kTokensInternal: bigint,
-): Promise<`0x${string}`> {
-  const account = walletClient.account;
-  if (!account) throw new Error("Wallet account unavailable");
-  const chain = walletClient.chain;
-  if (!chain) throw new Error("Wallet chain unavailable");
-
-  return walletClient.writeContract({
-    address: registryAddress,
-    abi: providerRegistryAbi,
-    functionName: "setNodePricing",
-    args: [nodeId, tier, pricePer1kTokensInternal],
     account,
     chain,
   });
@@ -348,7 +301,7 @@ export async function setNodePayout(
 
   return walletClient.writeContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "setNodePayout",
     args: [nodeId, getAddress(newPayout)],
     account,
@@ -369,7 +322,7 @@ export async function setNodeActive(
 
   return walletClient.writeContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "setNodeActive",
     args: [nodeId, active],
     account,
@@ -390,7 +343,7 @@ export async function setNodeMetadata(
 
   return walletClient.writeContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "setNodeMetadata",
     args: [nodeId, uri],
     account,
@@ -411,17 +364,17 @@ function walletSignerAddress(
 /**
  * Operator preconditions (`nodeOperator`, `operatorNodes` membership) used before state-changing calls.
  *
- * @returns Current on-chain **`NodeInfo`** via {@link getProvider}.
+ * @returns Current on-chain **`NodeInfo`** via {@link getNode}.
  */
 export async function assertOperatorForNode(
   publicClient: PublicClient,
   registryAddress: Address,
   nodeId: Hex,
   signerAddress: Address,
-): Promise<ProviderInfo> {
+): Promise<NodeInfo> {
   const assigned = await publicClient.readContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "nodeOperator",
     args: [nodeId],
   });
@@ -439,7 +392,7 @@ export async function assertOperatorForNode(
   }
   const ids = (await publicClient.readContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "operatorNodes",
     args: [me],
   })) as Hex[];
@@ -449,7 +402,7 @@ export async function assertOperatorForNode(
       "This node id is not in your operatorNodes list, so the contract would revert with NodeNotRegistered. Try refreshing; if the page still shows you as operator, RPC or registry state may not match what your wallet uses.",
     );
   }
-  return getProvider(publicClient, registryAddress, nodeId);
+  return getNode(publicClient, registryAddress, nodeId);
 }
 
 /**
@@ -542,7 +495,7 @@ export async function chillNode(
 
   await publicClient.simulateContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "chillNode",
     args: [nodeId],
     account,
@@ -550,7 +503,7 @@ export async function chillNode(
 
   return walletClient.writeContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "chillNode",
     args: [nodeId],
     account,
@@ -588,7 +541,7 @@ export async function markDefunct(
 
   await publicClient.simulateContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "markDefunct",
     args: [nodeId],
     account,
@@ -596,7 +549,7 @@ export async function markDefunct(
 
   return walletClient.writeContract({
     address: registryAddress,
-    abi: providerRegistryAbi,
+    abi: operatorRegistryAbi,
     functionName: "markDefunct",
     args: [nodeId],
     account,
@@ -604,22 +557,41 @@ export async function markDefunct(
   });
 }
 
-/** Alias for {@link setNodePricing} (same calldata). */
-export const setPricing = setNodePricing;
-
 /**
  * Lists registered nodes via `NodeRegistered` logs, or via
  * `NEXT_PUBLIC_DEV_PROVIDER_ADDRESSES` (comma-separated 32-byte node IDs, or
  * 20-byte addresses padded like `parseNodeIdInput`) for local shortcuts.
  *
- * Each row is **`{ nodeId, info }`** where **`info`** is {@link ProviderInfo} / on-chain **`NodeInfo`**.
+ * Each row is **`{ nodeId, info }`** where **`info`** is {@link NodeInfo}.
  */
-export async function getAllProviders(
+/**
+ * Resolve a sparkl-solo software `mock-…` peer id to on-chain `bytes32` by scanning
+ * registered nodes' `metadataURI` JSON (`peer_id` field).
+ */
+export async function findNodeIdBySoftwarePeerId(
+  publicClient: PublicClient,
+  registryAddress: Address,
+  softwarePeerId: string,
+  opts?: { fromBlock?: bigint },
+): Promise<Hex | null> {
+  const want = softwarePeerId.trim().toLowerCase();
+  if (!want) return null;
+  const nodes = await getAllRegisteredNodes(publicClient, registryAddress, opts);
+  for (const { nodeId, info } of nodes) {
+    const peer = softwarePeerIdFromMetadataUri(info.metadataURI ?? "");
+    if (peer && peer.toLowerCase() === want) return nodeId;
+  }
+  return null;
+}
+
+export async function getAllRegisteredNodes(
   publicClient: PublicClient,
   registryAddress: Address,
   opts?: { fromBlock?: bigint },
-): Promise<RegisteredProvider[]> {
-  const rawList = process.env.NEXT_PUBLIC_DEV_PROVIDER_ADDRESSES;
+): Promise<RegisteredNode[]> {
+  const rawList =
+    process.env.NEXT_PUBLIC_DEV_OPERATOR_NODE_ADDRESSES ??
+    process.env.NEXT_PUBLIC_DEV_PROVIDER_ADDRESSES;
   if (rawList?.trim()) {
     const ids = rawList
       .split(",")
@@ -628,12 +600,12 @@ export async function getAllProviders(
       .map((a) => parseNodeIdInput(a))
       .filter((x): x is Hex => Boolean(x));
     const infos = await Promise.all(
-      ids.map((id) => getProvider(publicClient, registryAddress, id)),
+      ids.map((id) => getNode(publicClient, registryAddress, id)),
     );
     return ids.map((nodeId, i) => ({ nodeId, info: infos[i] }));
   }
 
-  const fromBlock = resolveProviderRegistryFromBlock(opts);
+  const fromBlock = resolveOperatorRegistryFromBlock(opts);
 
   const logs = await publicClient.getLogs({
     address: registryAddress,
@@ -652,7 +624,7 @@ export async function getAllProviders(
 
   const nodeIds = [...unique.values()];
   const infos = await Promise.all(
-    nodeIds.map((id) => getProvider(publicClient, registryAddress, id)),
+    nodeIds.map((id) => getNode(publicClient, registryAddress, id)),
   );
   return nodeIds.map((nodeId, i) => ({ nodeId, info: infos[i] }));
 }
@@ -660,12 +632,12 @@ export async function getAllProviders(
 /** A registered node with its current on-chain operator (from {@link getNodeOperator}). */
 export type RegisteredNodeWithOperator = {
   nodeId: Hex;
-  info: ProviderInfo;
+  info: NodeInfo;
   operator: Address;
 };
 
 /**
- * All nodes in the registry (same discovery as {@link getAllProviders}), each with
+ * All nodes in the registry (same discovery as {@link getAllRegisteredNodes}), each with
  * its operator address for display and filtering.
  */
 export async function getRegisteredNodesWithOperators(
@@ -673,9 +645,9 @@ export async function getRegisteredNodesWithOperators(
   registryAddress: Address,
   opts?: { fromBlock?: bigint },
 ): Promise<RegisteredNodeWithOperator[]> {
-  const providers = await getAllProviders(publicClient, registryAddress, opts);
+  const nodes = await getAllRegisteredNodes(publicClient, registryAddress, opts);
   const rows = await Promise.all(
-    providers.map(async ({ nodeId, info }) => ({
+    nodes.map(async ({ nodeId, info }) => ({
       nodeId,
       info,
       operator: await getNodeOperator(publicClient, registryAddress, nodeId),
@@ -687,15 +659,15 @@ export async function getRegisteredNodesWithOperators(
 /**
  * Nodes tied to `account`: wallet is the on-chain operator for the node, or the node's payout address.
  */
-export async function getProvidersLinkedToAccount(
+export async function getNodesLinkedToAccount(
   publicClient: PublicClient,
   registryAddress: Address,
   account: Address,
   opts?: { fromBlock?: bigint },
-): Promise<RegisteredProvider[]> {
-  const all = await getAllProviders(publicClient, registryAddress, opts);
+): Promise<RegisteredNode[]> {
+  const all = await getAllRegisteredNodes(publicClient, registryAddress, opts);
   const acc = account.toLowerCase();
-  const linked: RegisteredProvider[] = [];
+  const linked: RegisteredNode[] = [];
   for (const row of all) {
     const { nodeId, info } = row;
     const registered =
@@ -728,8 +700,8 @@ function normalizeLifecycle(raw: unknown): NodeLifecycle {
   return NodeLifecycle.Active;
 }
 
-/** Maps raw {@link getProvider} / on-chain **`NodeInfo`** (tuple or struct object) to {@link ProviderInfo}. */
-function normalizeProviderInfo(row: unknown): ProviderInfo {
+/** Maps raw `getProvider` / on-chain **`NodeInfo`** (tuple or struct object) to {@link NodeInfo}. */
+function normalizeNodeInfo(row: unknown): NodeInfo {
   if (Array.isArray(row)) {
     return {
       payout: getAddress(row[0] as Address),

@@ -12,6 +12,7 @@ import { useAccount, useChainId, useSwitchChain } from "wagmi";
 
 import { ToolbarConnectAccount } from "@/components/ToolbarConnectAccount";
 import { type ChainEnv } from "@/lib/chains";
+import { ensureDevWalletNetwork } from "@/lib/evm/ensureDevWalletNetwork";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
 
 function chainEnvTitle(env: ChainEnv): string {
@@ -33,6 +34,9 @@ export function AppToolbar() {
   const { switchChainAsync, isPending: isSwitchPending } = useSwitchChain();
   const { hubConfig, configError } = useHubChainConfig();
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [rpcFixBusy, setRpcFixBusy] = useState(false);
+  const [rpcFixError, setRpcFixError] = useState<string | null>(null);
+  const [rpcFixNotice, setRpcFixNotice] = useState<string | null>(null);
 
   const wrongChain = useMemo(() => {
     if (!isConnected || !hubConfig) return false;
@@ -61,6 +65,39 @@ export function AppToolbar() {
             <Text font="caption" color="fgMuted">
               {hubSummary}
             </Text>
+            {isConnected && hubConfig?.chainEnv === "assethub-dev-stub" ? (
+              <Button
+                accessibilityLabel="Register dev chain with portal RPC proxy in MetaMask"
+                variant="secondary"
+                compact
+                loading={rpcFixBusy}
+                disabled={rpcFixBusy}
+                onClick={() => {
+                  setRpcFixError(null);
+                  setRpcFixNotice(null);
+                  setRpcFixBusy(true);
+                  void ensureDevWalletNetwork(hubConfig)
+                    .then((notice) => {
+                      setRpcFixNotice(notice ?? null);
+                    })
+                    .catch((err: unknown) => {
+                      setRpcFixError(
+                        err instanceof Error
+                          ? err.message
+                          : "Could not set wallet RPC",
+                      );
+                    })
+                    .finally(() => setRpcFixBusy(false));
+                }}
+              >
+                {typeof window !== "undefined" &&
+                /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(
+                  window.location.hostname,
+                )
+                  ? "LAN chain RPC help"
+                  : "Fix wallet RPC (chain node)"}
+              </Button>
+            ) : null}
             {isConnected && wrongChain && hubConfig ? (
               <Button
                 accessibilityLabel="Switch wallet to configured Hub chain"
@@ -103,18 +140,21 @@ export function AppToolbar() {
           </Link>
           <Link
             as={NextLink}
-            href="/provider"
+            href="/operator"
             font="body"
             underline={false}
             title="Operator accounts directory"
           >
-            Providers
+            Operators
           </Link>
-          <Link as={NextLink} href="/c" font="body" underline={false}>
-            Consumer
+          <Link as={NextLink} href="/model" font="body" underline={false}>
+            Models
           </Link>
-          <Link as={NextLink} href="/c/fund" font="body" underline={false}>
-            Fund
+          <Link as={NextLink} href="/user" font="body" underline={false}>
+            User
+          </Link>
+          <Link as={NextLink} href="/sessions" font="body" underline={false}>
+            Sessions
           </Link>
         </HStack>
       </NavigationBar>
@@ -149,6 +189,21 @@ export function AppToolbar() {
               </Text>
             ) : null}
           </VStack>
+        </Banner>
+      ) : null}
+      {isConnected &&
+      hubConfig?.chainEnv === "assethub-dev-stub" &&
+      (rpcFixNotice || rpcFixError) ? (
+        <Banner
+          variant={rpcFixError ? "error" : "informational"}
+          startIcon="warning"
+          showDismiss={false}
+          bordered
+          title="Wallet RPC"
+        >
+          <Text font="caption" color="fgMuted" style={{ whiteSpace: "pre-wrap" }}>
+            {rpcFixError ?? rpcFixNotice}
+          </Text>
         </Banner>
       ) : null}
     </VStack>

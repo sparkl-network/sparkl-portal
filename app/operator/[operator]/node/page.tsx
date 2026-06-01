@@ -15,7 +15,7 @@ import { usePublicClient } from "wagmi";
 
 import { NodeDirectoryTable } from "@/components/nodes/NodeDirectoryTable";
 import { ZERO_ADDRESS } from "@/lib/chains";
-import { getOperatorNodes, getProvider, type RegisteredNodeWithOperator } from "@/lib/evm/registry";
+import { getOperatorNodes, getNode, type RegisteredNodeWithOperator } from "@/lib/evm/registry";
 import { shortAddress } from "@/lib/formatAddress";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
 
@@ -55,8 +55,8 @@ export default function OperatorNodesPage() {
 
   const registryUnset = Boolean(
     !hubConfig ||
-      !hubConfig.providerRegistryAddress ||
-      hubConfig.providerRegistryAddress.toLowerCase() ===
+      !hubConfig.operatorRegistryAddress ||
+      hubConfig.operatorRegistryAddress.toLowerCase() ===
         ZERO_ADDRESS.toLowerCase(),
   );
 
@@ -78,21 +78,21 @@ export default function OperatorNodesPage() {
     queryKey: [
       "operatorNodesPage",
       hubConfig?.chainId,
-      hubConfig?.providerRegistryAddress,
+      hubConfig?.operatorRegistryAddress,
       operatorAddr,
     ],
     queryFn: async () => {
       if (!publicClient || !hubConfig || !operatorAddr) {
         throw new Error("Missing RPC client, hub config, or operator");
       }
-      const registry = hubConfig.providerRegistryAddress;
+      const registry = hubConfig.operatorRegistryAddress;
       const nodeIds: Hex[] = await getOperatorNodes(
         publicClient,
         registry,
         operatorAddr,
       );
       const infos = await Promise.all(
-        nodeIds.map((nodeId) => getProvider(publicClient, registry, nodeId)),
+        nodeIds.map((nodeId) => getNode(publicClient, registry, nodeId)),
       );
       return nodeIds.map(
         (nodeId, i): RegisteredNodeWithOperator => ({
@@ -182,7 +182,7 @@ export default function OperatorNodesPage() {
             variant="error"
             startIcon="warning"
             showDismiss={false}
-            title="Provider registry address missing"
+            title="Operator registry address missing"
           >
             <Text font="body">
               Set a deployed ProviderRegistry in your env (see .env.example),

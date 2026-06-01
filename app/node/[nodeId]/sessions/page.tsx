@@ -12,9 +12,9 @@ import { useAccount, useChainId, usePublicClient } from "wagmi";
 
 import { ZERO_ADDRESS } from "@/lib/chains";
 import { getSession, getSessionIdsForNode } from "@/lib/evm/escrow";
-import { parseNodeIdRouteSegment } from "@/lib/nodeId";
 import { SecurityTier } from "@/lib/types";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
+import { useResolvedNodeRoute } from "@/lib/useResolvedNodeRoute";
 
 function tierLabel(t: SecurityTier): string {
   return t === SecurityTier.BEST_EFFORT ? "Best Effort" : "TEE verified";
@@ -29,12 +29,8 @@ export default function NodeSessionsPage() {
         ? params.nodeId[0]
         : "";
 
-  const parsedRoute = useMemo(() => parseNodeIdRouteSegment(raw), [raw]);
-  const nodeIdFromRoute = parsedRoute.nodeId;
-  const pathSegmentForLinks = useMemo(() => {
-    if (!nodeIdFromRoute) return "";
-    return parsedRoute.peerIdDisplay ?? nodeIdFromRoute;
-  }, [nodeIdFromRoute, parsedRoute.peerIdDisplay]);
+  const { nodeId: nodeIdFromRoute, pathSegmentForLinks } =
+    useResolvedNodeRoute(raw);
 
   const backHref =
     nodeIdFromRoute && pathSegmentForLinks
@@ -51,9 +47,9 @@ export default function NodeSessionsPage() {
   );
 
   const registryUnset = useMemo(() => {
-    if (!hubConfig?.providerRegistryAddress) return true;
+    if (!hubConfig?.operatorRegistryAddress) return true;
     return (
-      hubConfig.providerRegistryAddress.toLowerCase() ===
+      hubConfig.operatorRegistryAddress.toLowerCase() ===
       ZERO_ADDRESS.toLowerCase()
     );
   }, [hubConfig]);

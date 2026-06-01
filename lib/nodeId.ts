@@ -13,7 +13,17 @@ import {
 /** Canonical `bytes32` node key (e.g. Substrate PeerId hash on chain). */
 export type NodeId = Hex;
 
-export type NodeIdInputKind = "peer_id" | "hex32" | "address" | "invalid";
+export type NodeIdInputKind =
+  | "peer_id"
+  | "hex32"
+  | "address"
+  | "invalid";
+
+/** sparkl-solo software/mock TPM peer id (`mock-<hex>`), not a libp2p base58 peer id. */
+export function isMockSoftwarePeerId(s: string): boolean {
+  const t = s.trim();
+  return /^mock-[0-9a-f]{8,64}$/i.test(t);
+}
 
 /** Bitcoin / libp2p base58 alphabet (no 0, O, I, l). */
 const BASE58 =
@@ -89,6 +99,18 @@ export function parseNodeIdInput(raw: string): NodeId | null {
   return nodeIdFromLibp2pPeerIdString(s);
 }
 
+/** Value for the registration peer-id field after probe (libp2p `12D3Koo…`). */
+export function identityInputFromProbe(params: {
+  canonicalNodeId: Hex;
+  identityPeerId: string | null;
+}): string {
+  const peer = params.identityPeerId?.trim();
+  if (peer && nodeIdFromLibp2pPeerIdString(peer)) {
+    return peer.startsWith("z") ? peer.slice(1) : peer;
+  }
+  return params.canonicalNodeId;
+}
+
 /** How the user’s input was interpreted for {@link parseNodeIdInput}. */
 export function classifyNodeIdInput(raw: string): {
   kind: NodeIdInputKind;
@@ -108,10 +130,7 @@ export function classifyNodeIdInput(raw: string): {
 export type ParsedNodeRoute = {
   nodeId: NodeId | null;
   kind: NodeIdInputKind;
-  /**
-   * Libp2p peer id (base58, no `z` multibase prefix) when {@link kind} is `peer_id`.
-   * Used for pretty URLs and labels.
-   */
+  /** Libp2p peer id (base58, no `z` multibase prefix) when {@link kind} is `peer_id`. */
   peerIdDisplay: string | null;
 };
 
@@ -165,7 +184,11 @@ export function nodeDetailPathSegmentFromRegistration(params: {
   rawIdentityInput: string;
 }): string {
   const trimmed = params.rawIdentityInput.trim();
-  if (params.kind === "peer_id" && trimmed) {
+  if (
+    params.kind === "peer_id" &&
+    trimmed &&
+    !isMockSoftwarePeerId(trimmed)
+  ) {
     return trimmed.startsWith("z") ? trimmed.slice(1) : trimmed;
   }
   return params.nodeIdHex;

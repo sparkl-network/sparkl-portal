@@ -1,9 +1,15 @@
 "use client";
 
 import { Banner } from "@coinbase/cds-web/banner";
-import { Button } from "@coinbase/cds-web/buttons";
+import { Button, IconButton } from "@coinbase/cds-web/buttons";
 import { Checkbox, TextInput } from "@coinbase/cds-web/controls";
-import { Box, VStack } from "@coinbase/cds-web/layout";
+import { Box, HStack, VStack } from "@coinbase/cds-web/layout";
+import {
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+} from "@coinbase/cds-web/overlays";
 import { Link, Text } from "@coinbase/cds-web/typography";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import NextLink from "next/link";
@@ -19,13 +25,24 @@ import {
 } from "wagmi";
 
 import { ZERO_ADDRESS } from "@/lib/chains";
+import { formatTxError } from "@/lib/evm/formatTxError";
 import { getProvider, registerNode } from "@/lib/evm/registry";
-import { parseIdentityNodeId, parseIdentityPeerId } from "@/lib/identityProbe";
-import { classifyNodeIdInput, nodeDetailHrefFromRegistration, type NodeIdInputKind } from "@/lib/nodeId";
+import { canonicalNodeIdFromIdentityBody } from "@/lib/identityProbe";
+import {
+  parseRegistryCapabilities,
+  type RegistryCapabilities,
+} from "@/lib/registryCapabilities";
+import {
+  classifyNodeIdInput,
+  identityInputFromProbe,
+  nodeDetailHrefFromRegistration,
+  type NodeIdInputKind,
+} from "@/lib/nodeId";
 import { normalizeNodeBaseUrl } from "@/lib/nodeBaseUrl";
 import { registerDebug } from "@/lib/registerDebug";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
 
+/** TEE tier on-chain advertisement is planned; registration sends supportsTEE = false. */
 const supportsTeeEffective = false;
 
 type RegisterFormFields = {
@@ -53,6 +70,174 @@ type RegisterProbeGate = {
   identityPeerId: string | null;
 };
 
+function getRegisterDisabledReasons(params: {
+  configError: string | null;
+  hubConfig: ReturnType<typeof useHubChainConfig>["hubConfig"];
+  isConnected: boolean;
+  address: string | undefined;
+  chainId: number;
+  registryUnset: boolean;
+  walletClient: ReturnType<typeof useWalletClient>["data"];
+  walletClientError: Error | null;
+  txBusy: boolean;
+  registered: boolean | undefined;
+  successHash: string | null;
+  canonicalNodeId: Hex | null;
+  registrationIdAligned: boolean;
+  tiersFromProbe: boolean;
+  tierBestEffort: boolean;
+  tierTee: boolean;
+}): string[] {
+  const reasons: string[] = [];
+
+  if (params.configError) {
+    reasons.push(params.configError);
+  }
+  if (!params.hubConfig) {
+    reasons.push("Hub chain configuration is not loaded.");
+  }
+  if (!params.isConnected || !params.address) {
+    reasons.push("Connect a wallet from the toolbar.");
+  } else if (
+    params.hubConfig &&
+    params.chainId !== params.hubConfig.chainId
+  ) {
+    reasons.push(
+      `Switch to ${params.hubConfig.chainName} (chain ${params.hubConfig.chainId}).`,
+    );
+  }
+  if (params.registryUnset) {
+    reasons.push(
+      "Set OperatorRegistry address in portal env (NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_*).",
+    );
+  }
+  if (
+    params.isConnected &&
+    params.hubConfig &&
+    params.chainId === params.hubConfig.chainId &&
+    !params.walletClient
+  ) {
+    reasons.push(
+      params.walletClientError
+        ? `Wallet is not ready to sign (${params.walletClientError.message}).`
+        : "Wallet is not ready to sign. Try reconnecting.",
+    );
+  }
+  if (params.txBusy) {
+    reasons.push("Registration transaction in progress.");
+  }
+  if (params.registered) {
+    reasons.push("This node ID is already registered on-chain.");
+  }
+  if (params.successHash) {
+    reasons.push("Registration already completed for this session.");
+  }
+  if (!params.canonicalNodeId) {
+    reasons.push(
+      "Run Probe successfully (GET /identity must return a valid libp2p peer_id).",
+    );
+  } else if (!params.registrationIdAligned) {
+    reasons.push(
+      "Peer ID or pasted hex must match the last successful Probe (/identity).",
+    );
+  }
+  if (params.canonicalNodeId && !params.tiersFromProbe) {
+    reasons.push("Run Probe to load security tiers from the node.");
+  } else if (
+    params.canonicalNodeId &&
+    params.tiersFromProbe &&
+    !params.tierBestEffort &&
+    !params.tierTee
+  ) {
+    reasons.push(
+      "Enable at least one security tier (Best Effort and/or TEE) from Probe.",
+    );
+  }
+
+  return reasons;
+}
+
+function RegisterHelpModal({
+  visible,
+  onRequestClose,
+}: {
+  visible: boolean;
+  onRequestClose: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      onRequestClose={onRequestClose}
+      accessibilityLabel="How to register a node"
+    >
+      <ModalHeader title="How to register a node" />
+      <ModalBody paddingX={3} paddingY={2}>
+        <VStack gap={2} alignItems="flex-start">
+          <Text font="body" color="fgMuted">
+            Register your node on the hub chain in four steps:
+          </Text>
+          <Text font="body" color="fgMuted">
+            (1) Connect your wallet on the correct network.
+          </Text>
+          <Text font="body" color="fgMuted">
+            (2) Enter your node&apos;s HTTP base URL and run{" "}
+            <Text as="span" font="body">
+              Probe
+            </Text>{" "}
+            so the portal can read{" "}
+            <Text as="span" font="body" mono>
+              /status
+            </Text>
+            ,{" "}
+            <Text as="span" font="body" mono>
+              /v1/models
+            </Text>
+            , and{" "}
+            <Text as="span" font="body" mono>
+              /identity
+            </Text>
+            .
+          </Text>
+          <Text font="body" color="fgMuted">
+            (3) Confirm payout and tier settings.
+          </Text>
+          <Text font="body" color="fgMuted">
+            (4) Sign{" "}
+            <Text as="span" font="body">
+              Register
+            </Text>{" "}
+            to write your node into{" "}
+            <Text as="span" font="body" mono>
+              OperatorRegistry
+            </Text>
+            .
+          </Text>
+          <Text font="body" color="fgMuted">
+            Registration uses the canonical{" "}
+            <Text as="span" font="body" mono>
+              node_id
+            </Text>{" "}
+            from{" "}
+            <Text as="span" font="body" mono>
+              /identity
+            </Text>{" "}
+            (bytes32 = keccak256 of the node&apos;s ed25519 public key). After
+            confirmation, use the node page to change payout, metadata, and
+            listing status.
+          </Text>
+        </VStack>
+      </ModalBody>
+      <ModalFooter
+        primaryAction={
+          <Button variant="secondary" onClick={onRequestClose}>
+            Close
+          </Button>
+        }
+      />
+    </Modal>
+  );
+}
+
 function formatProbeBody(body: unknown): string {
   if (body === null || body === undefined) return "—";
   if (typeof body === "string") return body;
@@ -70,13 +255,16 @@ function RegisterFormBody({
   resolvedNodeId,
   canonicalNodeIdFromProbe,
   defaultPayoutAddress,
+  payoutInputKey,
   fieldsDisabled,
   submitRegisterDisabled,
+  registerDisabledReasons,
   successHash,
   txBusy,
   onSubmitFields,
   onProbeGateChange,
   onApplyIdentityFromProbe,
+  onTierFlagsChange,
 }: {
   nodeIdentityInput: string;
   onNodeIdentityChange: (value: string) => void;
@@ -86,16 +274,24 @@ function RegisterFormBody({
   defaultPayoutAddress: string;
   fieldsDisabled: boolean;
   submitRegisterDisabled: boolean;
+  registerDisabledReasons: string[];
   successHash: string | null;
   txBusy: boolean;
   onSubmitFields: (fields: RegisterFormFields) => void;
   onProbeGateChange: (gate: RegisterProbeGate) => void;
   onApplyIdentityFromProbe: (peerId: string) => void;
+  onTierFlagsChange: (flags: {
+    supportsBestEffort: boolean;
+    supportsTEE: boolean;
+    tiersFromProbe: boolean;
+  }) => void;
+  payoutInputKey: string;
 }) {
   /** Empty initial state avoids SSR vs client mismatch when the wallet restores on load. */
   const [payoutInput, setPayoutInput] = useState("");
-  const [supportsBestEffort, setSupportsBestEffort] = useState(true);
-  const [supportsTEE, setSupportsTEE] = useState(false);
+  const [probeTiers, setProbeTiers] = useState<RegistryCapabilities | null>(
+    null,
+  );
   const [nodeBaseUrl, setNodeBaseUrl] = useState("http://127.0.0.1:8787");
   const [probeLoading, setProbeLoading] = useState(false);
   const [probeResult, setProbeResult] = useState<ProbeApiOk | null>(null);
@@ -107,6 +303,22 @@ function RegisterFormBody({
     });
   }, [defaultPayoutAddress]);
 
+  useEffect(() => {
+    if (!probeTiers) {
+      onTierFlagsChange({
+        supportsBestEffort: false,
+        supportsTEE: false,
+        tiersFromProbe: false,
+      });
+      return;
+    }
+    onTierFlagsChange({
+      supportsBestEffort: probeTiers.supportsBestEffort,
+      supportsTEE: supportsTeeEffective && probeTiers.supportsTEE,
+      tiersFromProbe: true,
+    });
+  }, [probeTiers, onTierFlagsChange]);
+
   const probeBlocked = Boolean(successHash);
 
   async function runNodeProbe() {
@@ -115,9 +327,10 @@ function RegisterFormBody({
     setProbeHttpError(null);
     setProbeResult(null);
     onProbeGateChange({ canonicalNodeId: null, identityPeerId: null });
+    setProbeTiers(null);
     setProbeLoading(true);
     try {
-      const r = await fetch("/api/provider-node-probe", {
+      const r = await fetch("/api/operator-node-probe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ baseUrl: base }),
@@ -137,13 +350,21 @@ function RegisterFormBody({
       const ok = data as ProbeApiOk;
       setProbeResult(ok);
       const idPart = ok.identity;
-      const canonical =
-        idPart.ok ? parseIdentityNodeId(idPart.body) : null;
-      const peer =
-        idPart.ok ? parseIdentityPeerId(idPart.body) : null;
+      const parsed =
+        idPart.ok ? canonicalNodeIdFromIdentityBody(idPart.body) : null;
+      const canonical = parsed?.nodeId ?? null;
+      const peer = parsed?.peerId ?? null;
       onProbeGateChange({ canonicalNodeId: canonical, identityPeerId: peer });
-      if (peer) {
-        onApplyIdentityFromProbe(peer);
+      if (canonical) {
+        onApplyIdentityFromProbe(
+          identityInputFromProbe({
+            canonicalNodeId: canonical,
+            identityPeerId: peer,
+          }),
+        );
+      }
+      if (idPart.ok) {
+        setProbeTiers(parseRegistryCapabilities(idPart.body));
       }
     } catch (e) {
       setProbeHttpError(
@@ -154,153 +375,38 @@ function RegisterFormBody({
     }
   }
 
+  const peerIdReadOnly = Boolean(canonicalNodeIdFromProbe);
+
   return (
     <VStack gap={2}>
       <TextInput
-        label="Peer ID"
-        placeholder="12D3KooW… (from logs or GET …/identity → peer_id)"
-        value={nodeIdentityInput}
-        onChange={(e) => onNodeIdentityChange(e.target.value)}
-        disabled={fieldsDisabled}
-      />
-      <Text font="caption" color="fgMuted">
-        Prefer the libp2p peer id string (human-readable). After you run Test
-        node, the form syncs with{" "}
-        <Text as="span" font="caption" mono>
-          GET …/identity
-        </Text>
-        . The on-chain{" "}
-        <Text as="span" font="caption" mono>
-          bytes32
-        </Text>{" "}
-        is always{" "}
-        <Text as="span" font="caption" mono>
-          keccak256(ed25519_pubkey)
-        </Text>{" "}
-        from that endpoint — not the libp2p multihash digest. Advanced: paste{" "}
-        <Text as="span" font="caption" mono>
-          0x
-        </Text>{" "}
-        + 64 hex or an Ethereum address (right-padded) only if it matches{" "}
-        <Text as="span" font="caption" mono>
-          /identity.node_id
-        </Text>
-        .
-      </Text>
-
-      {canonicalNodeIdFromProbe ? (
-        <Box
-          width="100%"
-          padding={2}
-          bordered
-          borderColor="bgLineHeavy"
-          style={{ borderRadius: 8 }}
-        >
-          <Text font="caption" color="fgMuted">
-            On-chain id from successful probe (GET /identity → node_id)
-          </Text>
-          <Text
-            font="caption"
-            mono
-            tabularNumbers
-            style={{ wordBreak: "break-all" }}
-          >
-            {canonicalNodeIdFromProbe}
-          </Text>
-        </Box>
-      ) : null}
-
-      {resolvedNodeId ? (
-        <Box
-          width="100%"
-          padding={2}
-          bordered
-          borderColor="bgLineHeavy"
-          style={{ borderRadius: 8 }}
-        >
-          <Text font="caption" color="fgMuted">
-            Resolved from your input (preview)
-          </Text>
-          <Text
-            font="caption"
-            mono
-            tabularNumbers
-            style={{ wordBreak: "break-all" }}
-          >
-            {resolvedNodeId}
-          </Text>
-          {nodeIdInputKind === "peer_id" ? (
-            <Text font="caption" color="fgMuted">
-              Libp2p strings are hashed here as keccak over the multihash bytes
-              (legacy preview only). Registration uses{" "}
-              <Text as="span" font="caption" mono>
-                /identity.node_id
-              </Text>{" "}
-              after a successful test.
-            </Text>
-          ) : null}
-          {nodeIdInputKind === "address" ? (
-            <Text font="caption" color="fgMuted">
-              = your EVM address padded to 32 bytes (legacy dev / Foundry style).
-            </Text>
-          ) : null}
-          {nodeIdInputKind === "hex32" ? (
-            <Text font="caption" color="fgMuted">
-              = raw bytes32 from your paste (must match{" "}
-              <Text as="span" font="caption" mono>
-                /identity
-              </Text>{" "}
-              after testing).
-            </Text>
-          ) : null}
-        </Box>
-      ) : nodeIdentityInput.trim() ? (
-        <Text font="caption" style={{ color: "#b91c1c" }}>
-          Not recognized as a peer id (
-          <Text as="span" font="caption" mono>
-            12D3…
-          </Text>{" "}
-          base58), 0x + 64 hex, or an Ethereum address — check for typos or
-          spaces.
-        </Text>
-      ) : null}
-
-      <TextInput
-        label="Payout address"
+        key={payoutInputKey}
+        label="Payout address (wallet)"
         placeholder="0x…"
         value={payoutInput}
         onChange={(e) => setPayoutInput(e.target.value)}
         disabled={fieldsDisabled}
       />
-
-      <Checkbox
-        checked={supportsBestEffort}
-        onChange={(e) => setSupportsBestEffort(e.target.checked)}
-        value="best-effort"
-        disabled={fieldsDisabled}
-      >
-        Supports Best Effort
-      </Checkbox>
-
-      <VStack gap={1} alignItems="flex-start">
-        <Checkbox
-          checked={supportsTEE}
-          onChange={(e) => setSupportsTEE(e.target.checked)}
-          value="tee"
-          disabled={fieldsDisabled || !supportsTeeEffective}
-        >
-          Supports TEE
-        </Checkbox>
-        <Text font="caption" color="fgMuted">
-          {supportsTeeEffective
-            ? "TEE tier can be advertised when your deployment verifies attestations."
-            : "TEE is disabled in this build; the transaction sends supportsTEE = false."}
-        </Text>
-      </VStack>
-
-      <Text font="label2" color="fgMuted">
-        Node base URL
+      <Text font="caption" color="fgMuted">
+        Prefilled from the connected wallet (operator payout).
       </Text>
+
+      <TextInput
+        label="Node base URL"
+        placeholder="http://127.0.0.1:8787"
+        value={nodeBaseUrl}
+        onChange={(e) => {
+          setNodeBaseUrl(e.target.value);
+          onProbeGateChange({ canonicalNodeId: null, identityPeerId: null });
+          onNodeIdentityChange("");
+          setProbeTiers(null);
+          setProbeResult(null);
+          setProbeHttpError(null);
+        }}
+        disabled={probeBlocked}
+      />
+
+
       <Text font="caption" color="fgMuted">
         HTTP origin stored on-chain as versioned JSON (with{" "}
         <Text as="span" font="caption" mono>
@@ -320,21 +426,9 @@ function RegisterFormBody({
         </Text>
         .
       </Text>
-      <TextInput
-        label="Provider base URL"
-        placeholder="http://127.0.0.1:8787"
-        value={nodeBaseUrl}
-        onChange={(e) => {
-          setNodeBaseUrl(e.target.value);
-          onProbeGateChange({ canonicalNodeId: null, identityPeerId: null });
-          setProbeResult(null);
-          setProbeHttpError(null);
-        }}
-        disabled={probeBlocked}
-      />
 
       <Text font="label2" color="fgMuted">
-        Test inference node (Sparkl)
+        Probe node
       </Text>
       <Text font="caption" color="fgMuted">
         Calls{" "}
@@ -362,7 +456,7 @@ function RegisterFormBody({
         loading={probeLoading}
         onClick={() => void runNodeProbe()}
       >
-        Test node
+        Probe
       </Button>
 
       {probeHttpError ? (
@@ -397,7 +491,12 @@ function RegisterFormBody({
               borderRadius={400}
               style={{ overflow: "auto", maxHeight: 220 }}
             >
-              <Text font="caption" mono tabularNumbers style={{ whiteSpace: "pre-wrap" }}>
+              <Text
+                font="body"
+                mono
+                tabularNumbers
+                style={{ whiteSpace: "pre-wrap", textTransform: "none" }}
+              >
                 {formatProbeBody(probeResult.status.body)}
               </Text>
             </Box>
@@ -406,6 +505,41 @@ function RegisterFormBody({
             <Text font="label2" color="fgMuted">
               Identity (/identity)
             </Text>
+            <VStack gap={1} alignItems="flex-start">
+              <Checkbox
+                checked={probeTiers?.supportsBestEffort ?? false}
+                onChange={() => {}}
+                value="best-effort"
+                disabled={fieldsDisabled || !probeTiers}
+              >
+                Supports Best Effort
+              </Checkbox>
+              <Text font="caption" color="fgMuted">
+                {probeTiers
+                  ? "From Probe (`registry_capabilities` on GET /identity)."
+                  : "Run Probe to load from `registry_capabilities`."}
+              </Text>
+            </VStack>
+
+            <VStack gap={1} alignItems="flex-start">
+              <Checkbox
+                checked={probeTiers?.supportsTEE ?? false}
+                onChange={() => {}}
+                value="tee"
+                disabled={fieldsDisabled || !probeTiers}
+              >
+                Supports TEE
+              </Checkbox>
+              <Text font="caption" color="fgMuted">
+                {probeTiers
+                  ? supportsTeeEffective
+                    ? "From Probe. On-chain TEE sessions still require attestation (`setTEEProof`)."
+                    : "From Probe. Registration sends supportsTEE = false while TEE tier is planned."
+                  : "Run Probe to load from `registry_capabilities`."}
+              </Text>
+            </VStack>
+
+
             <Text font="caption" color="fgMuted">
               HTTP {probeResult.identity.httpStatus}{" "}
               {probeResult.identity.ok ? "OK" : "non-OK"}
@@ -420,7 +554,12 @@ function RegisterFormBody({
               borderRadius={400}
               style={{ overflow: "auto", maxHeight: 220 }}
             >
-              <Text font="caption" mono tabularNumbers style={{ whiteSpace: "pre-wrap" }}>
+              <Text
+                font="body"
+                mono
+                tabularNumbers
+                style={{ whiteSpace: "pre-wrap", textTransform: "none" }}
+              >
                 {formatProbeBody(probeResult.identity.body)}
               </Text>
             </Box>
@@ -443,12 +582,153 @@ function RegisterFormBody({
               borderRadius={400}
               style={{ overflow: "auto", maxHeight: 320 }}
             >
-              <Text font="caption" mono tabularNumbers style={{ whiteSpace: "pre-wrap" }}>
+              <Text
+                font="body"
+                mono
+                tabularNumbers
+                style={{ whiteSpace: "pre-wrap", textTransform: "none" }}
+              >
                 {formatProbeBody(probeResult.models.body)}
               </Text>
             </Box>
           </VStack>
         </VStack>
+      ) : null}
+
+      <Text font="label2" color="fgMuted">
+        Node identity
+      </Text>
+      <TextInput
+        label="Peer ID"
+        placeholder="Run Probe to load from GET /identity"
+        value={nodeIdentityInput}
+        readOnly={peerIdReadOnly}
+        disabled={fieldsDisabled || !canonicalNodeIdFromProbe}
+      />
+      {/* <Text font="caption" color="fgMuted">
+        Filled from your last successful Probe. Edit only if you need to paste{" "}
+        <Text as="span" font="caption" mono>
+          node_id
+        </Text>{" "}
+        hex for software/mock keys.
+      </Text> */}
+
+      {/* {canonicalNodeIdFromProbe ? (
+        <Box
+          width="100%"
+          padding={2}
+          bordered
+          borderColor="bgLineHeavy"
+          style={{ borderRadius: 8 }}
+        >
+          <Text font="caption" color="fgMuted">
+            On-chain id from successful probe (GET /identity → node_id)
+          </Text>
+          <Text
+            font="body"
+            mono
+            tabularNumbers
+            style={{ wordBreak: "break-all", textTransform: "none" }}
+          >
+            {canonicalNodeIdFromProbe}
+          </Text>
+        </Box>
+      ) : null} */}
+
+      {/* {resolvedNodeId ? (
+        <Box
+          width="100%"
+          padding={2}
+          bordered
+          borderColor="bgLineHeavy"
+          style={{ borderRadius: 8 }}
+        >
+          <Text font="caption" color="fgMuted">
+            Resolved from your input (preview)
+          </Text>
+          <Text
+            font="body"
+            mono
+            tabularNumbers
+            style={{ wordBreak: "break-all", textTransform: "none" }}
+          >
+            {resolvedNodeId}
+          </Text>
+          {nodeIdInputKind === "peer_id" ? (
+            <Text font="caption" color="fgMuted">
+              Libp2p strings are hashed here as keccak over the multihash bytes
+              (legacy preview only). Registration uses{" "}
+              <Text as="span" font="caption" mono>
+                /identity.node_id
+              </Text>{" "}
+              after a successful probe.
+            </Text>
+          ) : null}
+          {nodeIdInputKind === "address" ? (
+            <Text font="caption" color="fgMuted">
+              = your EVM address padded to 32 bytes (legacy dev / Foundry style).
+            </Text>
+          ) : null}
+          {nodeIdInputKind === "hex32" ? (
+            <Text font="caption" color="fgMuted">
+              = raw bytes32 from your paste (must match{" "}
+              <Text as="span" font="caption" mono>
+                /identity
+              </Text>{" "}
+              after probing).
+            </Text>
+          ) : null}
+        </Box>
+      ) : nodeIdentityInput.trim() ? (
+        <Text font="caption" style={{ color: "#b91c1c" }}>
+          Not recognized as a libp2p peer id (
+          <Text as="span" font="caption" mono>
+            12D3…
+          </Text>
+          ), 0x + 64 hex, or an Ethereum address.
+          {nodeIdentityInput.trim().startsWith("mock-") ||
+          nodeIdentityInput.trim().startsWith("tpm-") ? (
+            <>
+              {" "}
+              Software keys return{" "}
+              <Text as="span" font="caption" mono>
+                mock-…
+              </Text>{" "}
+              /{" "}
+              <Text as="span" font="caption" mono>
+                tpm-…
+              </Text>{" "}
+              in GET /identity — paste the{" "}
+              <Text as="span" font="caption" mono>
+                node_id
+              </Text>{" "}
+              hex above, or run Probe again to auto-fill.
+            </>
+          ) : (
+            <> Check for typos or spaces.</>
+          )}
+        </Text>
+      ) : null} */}
+
+      {submitRegisterDisabled && registerDisabledReasons.length > 0 ? (
+        <Box
+          width="100%"
+          padding={2}
+          bordered
+          borderColor="bgLineHeavy"
+          style={{ borderRadius: 8 }}
+        >
+          <Text font="label2" color="fgMuted">
+            Register is disabled until:
+          </Text>
+          <VStack gap={0.5} alignItems="flex-start" paddingTop={1}>
+            {registerDisabledReasons.map((reason, index) => (
+              <Text key={`${index}-${reason}`} font="caption" color="fgMuted">
+                • {reason}
+              </Text>
+            ))}
+          </VStack>
+        </Box>
       ) : null}
 
       <Button
@@ -465,18 +745,18 @@ function RegisterFormBody({
             hasResolvedNodeId: Boolean(resolvedNodeId),
             payoutFieldLength: payoutInput.trim().length,
             nodeBaseUrlLength: nodeBaseUrl.trim().length,
-            supportsBestEffort,
-            supportsTEEEffective: supportsTeeEffective && supportsTEE,
+            supportsBestEffort: probeTiers?.supportsBestEffort,
+            supportsTEEEffective: supportsTeeEffective && probeTiers?.supportsTEE,
           });
           onSubmitFields({
             payoutInput,
-            supportsBestEffort,
-            supportsTEE: supportsTeeEffective && supportsTEE,
+            supportsBestEffort: probeTiers?.supportsBestEffort ?? false,
+            supportsTEE: supportsTeeEffective && (probeTiers?.supportsTEE ?? false),
             nodeBaseUrl,
           });
         }}
       >
-        Register on-chain
+        Register
       </Button>
     </VStack>
   );
@@ -499,6 +779,13 @@ export default function ProviderRegisterPage() {
   const [txError, setTxError] = useState<string | null>(null);
   const [successHash, setSuccessHash] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [tierFlags, setTierFlags] = useState({
+    supportsBestEffort: false,
+    supportsTEE: false,
+    tiersFromProbe: false,
+  });
   const [nodeIdentityInput, setNodeIdentityInput] = useState("");
   const [probeGate, setProbeGate] = useState<RegisterProbeGate>({
     canonicalNodeId: null,
@@ -539,6 +826,27 @@ export default function ProviderRegisterPage() {
     setNodeIdentityInput(peerId);
   }, []);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const effectiveIsConnected = mounted && isConnected;
+
+  const handleTierFlagsChange = useCallback(
+    (flags: {
+      supportsBestEffort: boolean;
+      supportsTEE: boolean;
+      tiersFromProbe: boolean;
+    }) => {
+      setTierFlags(flags);
+    },
+    [],
+  );
+
+  const tiersEnabled =
+    tierFlags.tiersFromProbe &&
+    (tierFlags.supportsBestEffort || tierFlags.supportsTEE);
+
   const resolvedNodePageHref = useMemo(() => {
     const nodeHex = probeGate.canonicalNodeId ?? resolvedNodeId;
     if (!nodeHex) return "/node";
@@ -555,16 +863,16 @@ export default function ProviderRegisterPage() {
   ]);
 
   const chainReady = Boolean(
-    isConnected &&
+    effectiveIsConnected &&
       hubConfig &&
       chainId === hubConfig.chainId &&
       address,
   );
 
   const registryUnset = useMemo(() => {
-    if (!hubConfig?.providerRegistryAddress) return true;
+    if (!hubConfig?.operatorRegistryAddress) return true;
     return (
-      hubConfig.providerRegistryAddress.toLowerCase() ===
+      hubConfig.operatorRegistryAddress.toLowerCase() ===
       ZERO_ADDRESS.toLowerCase()
     );
   }, [hubConfig]);
@@ -576,14 +884,14 @@ export default function ProviderRegisterPage() {
     queryKey: [
       "providerRegistered",
       hubConfig?.chainId,
-      hubConfig?.providerRegistryAddress,
+      hubConfig?.operatorRegistryAddress,
       registrationLookupId,
     ],
     queryFn: async () => {
       if (!publicClient || !hubConfig || !registrationLookupId) return false;
       const info = await getProvider(
         publicClient,
-        hubConfig.providerRegistryAddress,
+        hubConfig.operatorRegistryAddress,
         registrationLookupId,
       );
       return info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
@@ -630,19 +938,19 @@ export default function ProviderRegisterPage() {
         registryUnset,
         registered,
         registrationLoading,
-        registryAddress: hubConfig?.providerRegistryAddress,
+        registryAddress: hubConfig?.operatorRegistryAddress,
       });
       if (!nodeId) {
         registerDebug("submitRegistration: abort — no canonical id from probe");
         setValidationError(
-          'Run Test node first. Registration needs a successful GET /identity with a valid node_id (canonical bytes32 = keccak256(ed25519 pubkey)).',
+          'Run Probe first. Registration needs a successful GET /identity with a valid libp2p peer_id (on-chain bytes32 = keccak256(libp2p multihash)).',
         );
         return;
       }
       if (!registrationIdAligned) {
         registerDebug("submitRegistration: abort — identity mismatch");
         setValidationError(
-          "Peer id or bytes32 field must match your node’s GET /identity (same peer_id string or 0x node_id). Run Test node again or paste the values from /identity.",
+          "Peer id or bytes32 field must match your node’s GET /identity (same peer_id string or 0x node_id). Run Probe again or paste the values from /identity.",
         );
         return;
       }
@@ -712,7 +1020,6 @@ export default function ProviderRegisterPage() {
         ...(probeGate.identityPeerId
           ? { peer_id: probeGate.identityPeerId }
           : {}),
-        node_id: nodeId,
       });
 
       registerDebug("submitRegistration: calling registerNode", {
@@ -725,7 +1032,7 @@ export default function ProviderRegisterPage() {
       try {
         const hash = await registerNode(
           walletClient,
-          hubConfig.providerRegistryAddress,
+          hubConfig.operatorRegistryAddress,
           {
             nodeId,
             payout,
@@ -760,9 +1067,7 @@ export default function ProviderRegisterPage() {
         registerDebug("submitRegistration: registerNode failed", {
           error: e instanceof Error ? e.message : String(e),
         });
-        setTxError(
-          e instanceof Error ? e.message : "Registration transaction failed",
-        );
+        setTxError(formatTxError(e));
       } finally {
         setTxBusy(false);
       }
@@ -800,9 +1105,53 @@ export default function ProviderRegisterPage() {
     walletRegistryGate ||
     Boolean(registered) ||
     Boolean(successHash) ||
-    !registrationIdAligned;
+    !registrationIdAligned ||
+    !tiersEnabled;
 
-  const defaultPayout = address ?? "";
+  const registerDisabledReasons = useMemo(() => {
+    if (!submitRegisterDisabled) return [];
+    return getRegisterDisabledReasons({
+      configError,
+      hubConfig,
+      isConnected,
+      address,
+      chainId,
+      registryUnset,
+      walletClient,
+      walletClientError: walletClientError ?? null,
+      txBusy,
+      registered,
+      successHash,
+      canonicalNodeId: probeGate.canonicalNodeId,
+      registrationIdAligned,
+      tiersFromProbe: tierFlags.tiersFromProbe,
+      tierBestEffort: tierFlags.supportsBestEffort,
+      tierTee: tierFlags.supportsTEE,
+    });
+  }, [
+    submitRegisterDisabled,
+    configError,
+    hubConfig,
+    isConnected,
+    address,
+    chainId,
+    registryUnset,
+    walletClient,
+    walletClientError,
+    txBusy,
+    registered,
+    successHash,
+    probeGate.canonicalNodeId,
+    registrationIdAligned,
+    tierFlags.tiersFromProbe,
+    tierFlags.supportsBestEffort,
+    tierFlags.supportsTEE,
+  ]);
+
+  const defaultPayout =
+    effectiveIsConnected && address ? address : "";
+  const payoutInputKey =
+    effectiveIsConnected && address ? address : "disconnected";
 
   return (
     <Box paddingX={3} paddingY={3}>
@@ -811,30 +1160,21 @@ export default function ProviderRegisterPage() {
           ← Nodes
         </Link>
 
-        <Text font="title2">Register node</Text>
-        <Text font="body" color="fgMuted">
-          Register in{" "}
-          <Text as="span" font="body" mono>
-            ProviderRegistry
-          </Text>{" "}
-          using the libp2p peer id from your node (or paste the{" "}
-          <Text as="span" font="body" mono>
-            peer_id
-          </Text>{" "}
-          from{" "}
-          <Text as="span" font="body" mono>
-            GET …/identity
-          </Text>
-          ). Run Test node so the portal reads the canonical on-chain{" "}
-          <Text as="span" font="body" mono>
-            bytes32
-          </Text>{" "}
-          (<Text as="span" font="body" mono>
-            keccak256(ed25519_pubkey)
-          </Text>
-          ). Your wallet signs as operator. After registration, use the node
-          page to update payout, metadata, and listing status.
-        </Text>
+        <HStack gap={1} alignItems="center">
+          <Text font="title2">Register node</Text>
+          <IconButton
+            name="questionMark"
+            variant="secondary"
+            compact
+            accessibilityLabel="How to register a node"
+            onClick={() => setHelpModalOpen(true)}
+          />
+        </HStack>
+
+        <RegisterHelpModal
+          visible={helpModalOpen}
+          onRequestClose={() => setHelpModalOpen(false)}
+        />
 
         {configError ? (
           <Banner
@@ -852,19 +1192,19 @@ export default function ProviderRegisterPage() {
             variant="error"
             startIcon="warning"
             showDismiss={false}
-            title="Provider registry address missing"
+            title="Operator registry address missing"
           >
             <Text font="body">
-              Deploy ProviderRegistry and set{" "}
+              Deploy OperatorRegistry and set{" "}
               <Text as="span" font="body" mono>
-                NEXT_PUBLIC_PROVIDER_REGISTRY_ADDRESS_*
+                NEXT_PUBLIC_OPERATOR_REGISTRY_ADDRESS_*
               </Text>{" "}
-              in <Text as="span" font="body" mono>.env</Text>.
+              in <Text as="span" font="body" mono>.env.local</Text>.
             </Text>
           </Banner>
         ) : null}
 
-        {!isConnected ? (
+        {mounted && !isConnected ? (
           <Banner
             variant="informational"
             startIcon="wallet"
@@ -875,7 +1215,7 @@ export default function ProviderRegisterPage() {
           </Banner>
         ) : null}
 
-        {isConnected && hubConfig && chainId !== hubConfig.chainId ? (
+        {effectiveIsConnected && hubConfig && chainId !== hubConfig.chainId ? (
           <Banner
             variant="warning"
             startIcon="warning"
@@ -907,7 +1247,7 @@ export default function ProviderRegisterPage() {
               <Text as="span" font="body" mono>
                 GET /identity
               </Text>{" "}
-              probe. Run Test node again, use the{" "}
+              probe. Run Probe again, use the{" "}
               <Text as="span" font="body" mono>
                 peer_id
               </Text>{" "}
@@ -995,13 +1335,16 @@ export default function ProviderRegisterPage() {
           resolvedNodeId={resolvedNodeId}
           canonicalNodeIdFromProbe={probeGate.canonicalNodeId}
           defaultPayoutAddress={defaultPayout}
+          payoutInputKey={payoutInputKey}
           fieldsDisabled={fieldsDisabled}
           submitRegisterDisabled={submitRegisterDisabled}
+          registerDisabledReasons={registerDisabledReasons}
           successHash={successHash}
           txBusy={txBusy}
           onSubmitFields={(fields) => void submitRegistration(fields)}
           onProbeGateChange={handleProbeGateChange}
           onApplyIdentityFromProbe={handleApplyIdentityFromProbe}
+          onTierFlagsChange={handleTierFlagsChange}
         />
       </VStack>
     </Box>

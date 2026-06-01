@@ -15,9 +15,9 @@ export enum SecurityTier {
 
 /**
  * On-chain **`NodeInfo`** from `ProviderRegistry` (Solidity struct name).
- * The contract’s view is still named **`getProvider`** in the ABI; at the UI level treat this as **node** metadata (`getNode` / node info), not a separate “provider” entity.
+ * ABI view is still **`getNode`**; portal code uses {@link getNode}.
  */
-export type ProviderInfo = {
+export type NodeInfo = {
   payout: Address;
   feeBps: number;
   active: boolean;
@@ -29,10 +29,10 @@ export type ProviderInfo = {
   lifecycle: NodeLifecycle;
 };
 
-/** One registry node: **`nodeId`** + **`info`** (the on-chain `NodeInfo` shape above). */
-export type RegisteredProvider = {
+/** One registry node: **`nodeId`** + on-chain **`NodeInfo`**. */
+export type RegisteredNode = {
   nodeId: Hex;
-  info: ProviderInfo;
+  info: NodeInfo;
 };
 
 /** Operator (registry `msg.sender` at registration) with aggregate node stats (off-chain derived). */
@@ -43,18 +43,17 @@ export type OperatorDirectoryEntry = {
   teeCapableNodeCount: number;
 };
 
-/** One node row for an operator-account detail view (on-chain + optional pricing reads). */
+/** One node row for an operator-account detail view. */
 export type OperatorNodeDetailRow = {
   nodeId: Hex;
-  info: ProviderInfo;
-  bestEffortPrice: bigint | null;
-  teePrice: bigint | null;
+  info: NodeInfo;
 };
 
 /** Mirrors `SettlementEscrow.Session` public mapping getter. */
 export type EscrowSession = {
   user: Address;
   nodeId: Hex;
+  modelId: Hex;
   tier: SecurityTier;
   lockedInternal: bigint;
   usageRecorded: bigint;
@@ -62,4 +61,25 @@ export type EscrowSession = {
   openingInternal: bigint;
   openedAt: bigint;
   settled: boolean;
+  inputTokensRecorded: bigint;
+  outputTokensRecorded: bigint;
 };
+
+/** On-chain ModelPriceOracle.prices entry (internal 18-dec DOT units per 1k tokens). */
+export type ModelPrice = {
+  inputPer1kTokens: bigint;
+  outputPer1kTokens: bigint;
+  updatedAt: bigint;
+  active: boolean;
+};
+
+/** Active model listed on `ModelPriceOracle` (portal /models, session `openSession`). */
+export type NetworkModel = {
+  modelId: Hex;
+  /** Human-readable model key (e.g. `llama3:8b`). */
+  name: string;
+  price: ModelPrice;
+};
+
+/** @deprecated Use {@link NetworkModel}. */
+export type NetworkModelPrice = NetworkModel;

@@ -73,15 +73,15 @@ function OperatorStatusDot({
   );
 }
 
-export type ProviderDirectoryTableProps = {
+export type OperatorDirectoryTableProps = {
   rows: OperatorDirectoryEntry[];
 };
 
 /**
  * Polkadot-style directory table — same shell as {@link NodeDirectoryTable}
- * (bordered, compact, sticky header, row → provider detail).
+ * (bordered, compact, sticky header, row → operator detail).
  */
-export function ProviderDirectoryTable({ rows }: ProviderDirectoryTableProps) {
+export function OperatorDirectoryTable({ rows }: OperatorDirectoryTableProps) {
   const router = useRouter();
 
   return (
@@ -94,27 +94,14 @@ export function ProviderDirectoryTable({ rows }: ProviderDirectoryTableProps) {
     >
       <TableHeader sticky>
         <TableRow>
-          <TableCell
-            as="th"
-            scope="col"
-            title="Operator"
-            width="34%"
-            dangerouslySetHtmlWidth="34%"
-          />
-          <TableCell
-            as="th"
-            scope="col"
-            title="Status"
-            width="14%"
-            dangerouslySetHtmlWidth="14%"
-          />
+          <TableCell as="th" scope="col" title="Operator" width="34%" />
+          <TableCell as="th" scope="col" title="Status" width="14%" />
           <TableCell
             as="th"
             scope="col"
             title="Nodes"
             justifyContent="flex-end"
             width="12%"
-            dangerouslySetHtmlWidth="12%"
           />
           <TableCell
             as="th"
@@ -122,7 +109,6 @@ export function ProviderDirectoryTable({ rows }: ProviderDirectoryTableProps) {
             title="Active"
             justifyContent="flex-end"
             width="14%"
-            dangerouslySetHtmlWidth="14%"
           />
           <TableCell
             as="th"
@@ -130,7 +116,6 @@ export function ProviderDirectoryTable({ rows }: ProviderDirectoryTableProps) {
             title="TEE"
             justifyContent="flex-end"
             width="14%"
-            dangerouslySetHtmlWidth="14%"
           />
           <TableCell
             as="th"
@@ -138,7 +123,6 @@ export function ProviderDirectoryTable({ rows }: ProviderDirectoryTableProps) {
             title="Open"
             justifyContent="flex-end"
             width="12%"
-            dangerouslySetHtmlWidth="12%"
           />
         </TableRow>
       </TableHeader>
@@ -155,7 +139,7 @@ export function ProviderDirectoryTable({ rows }: ProviderDirectoryTableProps) {
           return (
             <TableRow
               key={op}
-              onClick={() => router.push(`/provider/${op}`)}
+              onClick={() => router.push(`/operator/${op}`)}
               style={{ cursor: "pointer" }}
             >
               <TableCell>

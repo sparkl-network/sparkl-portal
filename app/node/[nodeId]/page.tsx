@@ -39,22 +39,20 @@ import { formatTxError } from "@/lib/evm/formatTxError";
 import {
   chillNode,
   getNodeOperator,
-  getProvider,
+  getNode,
   lifecycleLabel,
   markDefunct,
   setNodeActive,
   setNodeMetadata,
   setNodePayout,
 } from "@/lib/evm/registry";
-import {
-  parseNodeIdRouteSegment,
-  peerIdMultihashHex,
-} from "@/lib/nodeId";
+import { peerIdMultihashHex } from "@/lib/nodeId";
+import { useResolvedNodeRoute } from "@/lib/useResolvedNodeRoute";
 import {
   metadataUriToBaseUrl,
   normalizeNodeBaseUrl,
 } from "@/lib/nodeBaseUrl";
-import { type ProviderInfo, NodeLifecycle } from "@/lib/types";
+import { type NodeInfo, NodeLifecycle } from "@/lib/types";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
 
 function teeProofSubmitted(hash: `0x${string}`): boolean {
@@ -72,7 +70,7 @@ function parsePayout(raw: string): Address | null {
 }
 
 type LoadedNodeDetail = {
-  info: ProviderInfo;
+  info: NodeInfo;
   operator: Address;
   isRegistered: true;
   openSessionCount: bigint;
@@ -174,9 +172,9 @@ function NodeOperatorControls({
         await queryClient.invalidateQueries({ queryKey: ["allRegistryNodes"] });
         await queryClient.invalidateQueries({ queryKey: ["operatorNodesPage"] });
         await queryClient.invalidateQueries({
-          queryKey: ["providerDirectory"],
+          queryKey: ["operatorDirectory"],
         });
-        await queryClient.invalidateQueries({ queryKey: ["providerDetail"] });
+        await queryClient.invalidateQueries({ queryKey: ["operatorDetail"] });
         await queryClient.invalidateQueries({ queryKey: ["nodeOpenSessions"] });
         await refetchDetail();
         await onSuccess?.();
@@ -637,17 +635,19 @@ export default function NodeDetailPage() {
         ? params.nodeId[0]
         : "";
 
-  const parsedRoute = useMemo(() => parseNodeIdRouteSegment(raw), [raw]);
-  const nodeIdFromRoute = parsedRoute.nodeId;
+  const {
+    parsed: parsedRoute,
+    nodeId: nodeIdFromRoute,
+    pathSegmentForLinks,
+  } = useResolvedNodeRoute(raw);
   const peerIdDisplay = parsedRoute.peerIdDisplay;
-  const pathSegmentForLinks = useMemo(() => {
-    if (!nodeIdFromRoute) return "";
-    return peerIdDisplay ?? nodeIdFromRoute;
-  }, [nodeIdFromRoute, peerIdDisplay]);
 
   const multihashHex = useMemo(
-    () => (peerIdDisplay ? peerIdMultihashHex(peerIdDisplay) : null),
-    [peerIdDisplay],
+    () =>
+      peerIdDisplay && parsedRoute.kind === "peer_id"
+        ? peerIdMultihashHex(peerIdDisplay)
+        : null,
+    [peerIdDisplay, parsedRoute.kind],
   );
 
   const { address, isConnected } = useAccount();
@@ -655,9 +655,9 @@ export default function NodeDetailPage() {
   const { hubConfig, configError } = useHubChainConfig();
 
   const registryUnset = useMemo(() => {
-    if (!hubConfig?.providerRegistryAddress) return true;
+    if (!hubConfig?.operatorRegistryAddress) return true;
     return (
-      hubConfig.providerRegistryAddress.toLowerCase() ===
+      hubConfig.operatorRegistryAddress.toLowerCase() ===
       ZERO_ADDRESS.toLowerCase()
     );
   }, [hubConfig]);
@@ -686,15 +686,15 @@ export default function NodeDetailPage() {
     queryKey: [
       "nodeDetail",
       hubConfig?.chainId,
-      hubConfig?.providerRegistryAddress,
+      hubConfig?.operatorRegistryAddress,
       nodeIdFromRoute,
     ],
     queryFn: async () => {
       if (!publicClient || !hubConfig || !nodeIdFromRoute) {
         throw new Error("Missing RPC client, hub config, or node ID");
       }
-      const registry = hubConfig.providerRegistryAddress;
-      const info = await getProvider(publicClient, registry, nodeIdFromRoute);
+      const registry = hubConfig.operatorRegistryAddress;
+      const info = await getNode(publicClient, registry, nodeIdFromRoute);
       const operator = await getNodeOperator(
         publicClient,
         registry,
@@ -748,25 +748,37 @@ export default function NodeDetailPage() {
             showDismiss={false}
             title="Invalid node ID"
           >
-            <Text font="body">
-              This URL must include a valid node identity: a libp2p peer id (
-              <Text as="span" font="body" mono>
-                12D3Koo…
-              </Text>{" "}
-              base58),{" "}
-              <Text as="span" font="body" mono>
-                0x
+            <VStack gap={1} alignItems="flex-start">
+              <Text font="body">
+                This URL must include a valid node identity: a libp2p peer id (
+                <Text as="span" font="body" mono>
+                  12D3Koo…
+                </Text>{" "}
+                base58),{" "}
+                <Text as="span" font="body" mono>
+                  0x
+                </Text>
+                + 64 hex (
+                <Text as="span" font="body" mono>
+                  bytes32
+                </Text>
+                ), or an Ethereum address (padded to{" "}
+                <Text as="span" font="body" mono>
+                  bytes32
+                </Text>{" "}
+                for dev).
               </Text>
-              + 64 hex (
-              <Text as="span" font="body" mono>
-                bytes32
-              </Text>
-              ), or an Ethereum address (padded to{" "}
-              <Text as="span" font="body" mono>
-                bytes32
-              </Text>{" "}
-              for dev).
-            </Text>
+              {address ? (
+                <Link
+                  as={NextLink}
+                  href={`/operator/${encodeURIComponent(getAddress(address))}/node`}
+                  font="body"
+                  underline
+                >
+                  Your operator nodes →
+                </Link>
+              ) : null}
+            </VStack>
           </Banner>
         ) : (
           <VStack gap={1} alignItems="flex-start">
@@ -836,7 +848,7 @@ export default function NodeDetailPage() {
             variant="error"
             startIcon="warning"
             showDismiss={false}
-            title="Provider registry address missing"
+            title="Operator registry address missing"
           >
             <Text font="body">
               Set a deployed ProviderRegistry in your env (see .env.example),
@@ -1151,7 +1163,7 @@ export default function NodeDetailPage() {
                 ].join(":")}
                 nodeId={nodeIdFromRoute}
                 detail={detail as LoadedNodeDetail}
-                registryAddress={hubConfig.providerRegistryAddress}
+                registryAddress={hubConfig.operatorRegistryAddress}
                 settlementEscrowAddress={hubConfig.settlementEscrowAddress}
                 controlsDisabled={controlsDisabled}
                 walletClient={walletClient}
