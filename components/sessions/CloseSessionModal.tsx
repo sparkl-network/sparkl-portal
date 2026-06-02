@@ -1,16 +1,16 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-} from "@coinbase/cds-web/overlays";
-import { Banner } from "@coinbase/cds-web/banner";
-import { Button } from "@coinbase/cds-web/buttons";
-import { TextInput } from "@coinbase/cds-web/controls";
-import { VStack } from "@coinbase/cds-web/layout";
-import { Text } from "@coinbase/cds-web/typography";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useMemo, useState } from "react";
 import { formatUnits } from "viem";
 import { waitForTransactionReceipt } from "viem/actions";
@@ -27,7 +27,7 @@ import {
 import type { EscrowSession } from "@/lib/types";
 
 type Props = {
-  visible: boolean;
+  open: boolean;
   onClose: () => void;
   sessionId: bigint;
   session: EscrowSession;
@@ -61,7 +61,7 @@ function CloseSessionForm({
   walletClient,
   publicClient,
   onSettled,
-}: Omit<Props, "visible">) {
+}: Omit<Props, "open">) {
   const suggested = useMemo(() => suggestSettleSplit(session), [session]);
   const [toProviderInput, setToProviderInput] = useState(() =>
     fieldFromWei(suggested.toProvider),
@@ -109,62 +109,66 @@ function CloseSessionForm({
   }
 
   return (
-    <Modal visible onClose={onClose} accessibilityLabel="Close session">
-      <ModalHeader title="Close session" />
-      <ModalBody paddingX={3} paddingY={2}>
-        <VStack gap={2}>
-          <Text font="body" color="fgMuted">
+    <Dialog open={true} onOpenChange={() => {}}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Close session</DialogTitle>
+        </DialogHeader>
+        <DialogDescription className="flex flex-col gap-2">
+          <p className="text-muted-foreground">
             Closes session {sessionId.toString()} and remits the remaining lock.
             Provider share is credited on-chain; your share returns to escrow
             balance (internal DOT).
-          </Text>
-          <Text font="caption" color="fgMuted">
+          </p>
+          <span className="text-xs text-muted-foreground">
             Locked: {fieldFromWei(locked)} · Usage recorded:{" "}
             {fieldFromWei(session.usageRecorded)} · Already paid to provider:{" "}
             {fieldFromWei(session.paidToProviderInternal)}
-          </Text>
-          <TextInput
-            label="Pay provider (internal DOT)"
-            value={toProviderInput}
-            onChange={(e) => setToProviderInput(e.target.value)}
-            disabled={busy}
-          />
-          <TextInput
-            label="Refund user (internal DOT)"
-            value={toUserInput}
-            onChange={(e) => setToUserInput(e.target.value)}
-            disabled={busy}
-          />
-          <Banner variant="informational" startIcon="info" showDismiss={false} title="After close">
-            <Text font="caption" color="fgMuted">
+          </span>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Pay provider (internal DOT)</label>
+            <Input
+              value={toProviderInput}
+              onChange={(e) => setToProviderInput(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Refund user (internal DOT)</label>
+            <Input
+              value={toUserInput}
+              onChange={(e) => setToUserInput(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+          <Alert variant="informational">
+            <AlertTitle>After close</AlertTitle>
+            <AlertDescription className="text-xs text-muted-foreground">
               Any API key for this session stops working. Router and nodes reject
               settled sessions.
-            </Text>
-          </Banner>
-          {error ? (
-            <Banner variant="error" startIcon="warning" showDismiss={false} title="Error">
-              <Text font="body">{error}</Text>
-            </Banner>
-          ) : null}
-        </VStack>
-      </ModalBody>
-      <ModalFooter
-        primaryAction={
-          <Button onClick={submit} loading={busy} disabled={locked === 0n}>
-            Settle and close
+            </AlertDescription>
+          </Alert>
+          {error && (
+            <Alert variant="destructive">
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+        </DialogDescription>
+        <DialogFooter>
+          <Button onClick={submit} disabled={busy || locked === 0n}>
+            {busy ? "Settling..." : "Settle and close"}
           </Button>
-        }
-        secondaryAction={
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-        }
-      />
-    </Modal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-export function CloseSessionModal({ visible, ...props }: Props) {
-  if (!visible) return null;
+export function CloseSessionModal({ open, ...props }: Props) {
+  if (!open) return null;
   return <CloseSessionForm key={props.sessionId.toString()} {...props} />;
 }

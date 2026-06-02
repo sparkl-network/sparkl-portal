@@ -1,18 +1,12 @@
 "use client";
 
-import { Banner } from "@coinbase/cds-web/banner";
-import { Box, HStack, VStack } from "@coinbase/cds-web/layout";
-import { Link, Text } from "@coinbase/cds-web/typography";
 import { useQuery } from "@tanstack/react-query";
 import NextLink from "next/link";
 
-import {
-  useAccount,
-  useChainId,
-  usePublicClient,
-} from "wagmi";
-
 import { OperatorDirectoryTable } from "@/components/operators/OperatorDirectoryTable";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ZERO_ADDRESS, chainRpcUrl } from "@/lib/chains";
 import {
   countNodeRegisteredLogs,
@@ -21,6 +15,11 @@ import {
 } from "@/lib/evm/registry";
 import { shortAddress } from "@/lib/formatAddress";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
+import {
+  useAccount,
+  useChainId,
+  usePublicClient,
+} from "wagmi";
 
 export default function OperatorDirectoryPage() {
   const { address, isConnected } = useAccount();
@@ -32,13 +31,10 @@ export default function OperatorDirectoryPage() {
   const registryUnset = Boolean(
     !hubConfig ||
       !hubConfig.operatorRegistryAddress ||
-      hubConfig.operatorRegistryAddress.toLowerCase() ===
-        ZERO_ADDRESS.toLowerCase(),
+      hubConfig.operatorRegistryAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase(),
   );
 
-  const {
-    data: logStats,
-  } = useQuery({
+  const { data: logStats } = useQuery({
     queryKey: [
       "operatorLogStats",
       hubConfig?.chainId,
@@ -59,12 +55,7 @@ export default function OperatorDirectoryPage() {
       return { count, fromBlock };
     },
     enabled: Boolean(
-      isConnected &&
-        hubConfig &&
-        publicClient &&
-        chainMatches &&
-        !registryUnset &&
-        !configError,
+      isConnected && hubConfig && publicClient && chainMatches && !registryUnset && !configError,
     ),
   });
 
@@ -86,21 +77,11 @@ export default function OperatorDirectoryPage() {
       );
     },
     enabled: Boolean(
-      isConnected &&
-        hubConfig &&
-        publicClient &&
-        chainMatches &&
-        !registryUnset &&
-        !configError &&
-        address,
+      isConnected && hubConfig && publicClient && chainMatches && !registryUnset && !configError && address,
     ),
   });
 
-  const {
-    data: rows = [],
-    error,
-    isFetching,
-  } = useQuery({
+  const { data: rows = [], error, isFetching } = useQuery({
     queryKey: [
       "operatorDirectory",
       hubConfig?.chainId,
@@ -116,138 +97,126 @@ export default function OperatorDirectoryPage() {
       );
     },
     enabled: Boolean(
-      isConnected &&
-        hubConfig &&
-        publicClient &&
-        chainMatches &&
-        !registryUnset &&
-        !configError,
+      isConnected && hubConfig && publicClient && chainMatches && !registryUnset && !configError,
     ),
   });
 
-  const errMsg =
-    error instanceof Error ? error.message : "Could not load operator accounts";
+  const errMsg = error instanceof Error ? error.message : "Could not load operator accounts";
 
   return (
-    <Box paddingX={3} paddingY={3}>
-      <VStack gap={3}>
+    <div className="px-3 py-3 w-full space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold mb-1">Operators</h1>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Wallets that have registered at least one node. Operators are derived from{" "}
+          <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">NodeRegistered</code>{" "}
+          logs; each account's nodes use on-chain{" "}
+          <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">operatorNodes</code>.
+        </p>
+      </div>
 
-        <VStack gap={1} alignItems="flex-start">
-          <Text font="title2">Operators</Text>
-          <Text font="body" color="fgMuted">
-            Wallets that have registered at least one node. Operators are derived from
-            NodeRegistered logs; each account’s nodes use on-chain{" "}
-            <Text as="span" font="body" mono>
-              operatorNodes
-            </Text>
-            .
-          </Text>
-        </VStack>
+      {/* Error banners */}
+      {configError && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTitle>Configuration error</AlertTitle>
+          <AlertDescription>{configError}</AlertDescription>
+        </Alert>
+      )}
 
-        {configError ? (
-          <Banner variant="error" startIcon="warning" showDismiss={false} title="Configuration error">
-            <Text font="body">{configError}</Text>
-          </Banner>
-        ) : null}
+      {hubConfig && registryUnset && !configError && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTitle>Registry missing</AlertTitle>
+          <AlertDescription>
+            Set OperatorRegistry in <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">.env.local</code> and restart.
+          </AlertDescription>
+        </Alert>
+      )}
 
-        {hubConfig && registryUnset && !configError ? (
-          <Banner variant="error" startIcon="warning" showDismiss={false} title="Registry missing">
-            <Text font="body">
-              Set OperatorRegistry in <Text as="span" font="body" mono>.env.local</Text> and restart.
-            </Text>
-          </Banner>
-        ) : null}
+      {!isConnected && (
+        <Alert variant="informational" className="mb-4">
+          <AlertTitle>Wallet disconnected</AlertTitle>
+          <AlertDescription>Connect on the hub chain to load the directory.</AlertDescription>
+        </Alert>
+      )}
 
-        {!isConnected ? (
-          <Banner variant="informational" startIcon="wallet" showDismiss={false} title="Wallet disconnected">
-            <Text font="body">Connect on the hub chain to load the directory.</Text>
-          </Banner>
-        ) : null}
+      {isConnected && hubConfig && !chainMatches && (
+        <Alert variant="warning" className="mb-4">
+          <AlertTitle>Wrong network</AlertTitle>
+          <AlertDescription>Switch to chain {hubConfig.chainId} ({hubConfig.chainName}).</AlertDescription>
+        </Alert>
+      )}
 
-        {isConnected && hubConfig && !chainMatches ? (
-          <Banner variant="warning" startIcon="warning" showDismiss={false} title="Wrong network">
-            <Text font="body">
-              Switch to chain {hubConfig.chainId} ({hubConfig.chainName}).
-            </Text>
-          </Banner>
-        ) : null}
+      {isConnected && chainMatches && !registryUnset && error && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTitle>Load failed</AlertTitle>
+          <AlertDescription>{errMsg}</AlertDescription>
+        </Alert>
+      )}
 
-        {isConnected && chainMatches && !registryUnset && error ? (
-          <Banner variant="error" startIcon="warning" showDismiss={false} title="Load failed">
-            <Text font="body">{errMsg}</Text>
-          </Banner>
-        ) : null}
+      {/* Loading */}
+      {isConnected && chainMatches && !registryUnset && isFetching ? (
+        <Skeleton className="h-[200px] w-full" />
+      ) : null}
 
-        {isConnected && chainMatches && !registryUnset && isFetching ? (
-          <Text font="body" color="fgMuted">
-            Loading operator accounts…
-          </Text>
-        ) : null}
+      {/* Table */}
+      {rows.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">{rows.length} operator{rows.length === 1 ? "" : "s"}</p>
+          <OperatorDirectoryTable rows={rows} />
+        </div>
+      )}
 
-        {rows.length > 0 ? (
-          <VStack gap={2} alignItems="stretch" width="100%">
-            <Text font="caption" color="fgMuted">
-              {rows.length} operator{rows.length === 1 ? "" : "s"}
-            </Text>
-            <OperatorDirectoryTable rows={rows} />
-          </VStack>
-        ) : null}
+      {/* Empty state */}
+      {isConnected && chainMatches && !registryUnset && !isFetching && !error && rows.length === 0 && (
+        <Alert variant="informational" className="mb-4">
+          <AlertTitle>No operators yet</AlertTitle>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              The directory lists wallets that emitted{" "}
+              <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">NodeRegistered</code>{" "}
+              on{" "}
+              <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">{hubConfig ? chainRpcUrl(hubConfig) : "the chain RPC"}</code>.
+              A deployed registry with no registrations looks like this — it is not a load error.
+            </p>
+            {logStats !== undefined && (
+              <p className="text-xs text-muted-foreground">
+                Found {logStats.count.toString()} registration event{logStats.count === 1n ? "" : "s"} from block {logStats.fromBlock}.
+              </p>
+            )}
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Register a node at{" "}
+              <NextLink href="/node/register" className="font-medium underline-offset-4 hover:underline">
+                /node/register
+              </NextLink>{" "}
+              using the same chain and registry address as in{" "}
+              <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">.env.local</code>, then refresh this page.
+            </p>
+          </div>
+        </Alert>
+      )}
 
-        {isConnected && chainMatches && !registryUnset && !isFetching && !error && rows.length === 0 ? (
-          <VStack gap={2} alignItems="flex-start">
-            <Banner variant="informational" showDismiss={false} bordered title="No operators yet">
-              <VStack gap={1} alignItems="flex-start">
-                <Text font="body">
-                  The directory lists wallets that emitted{" "}
-                  <Text as="span" font="body" mono>
-                    NodeRegistered
-                  </Text>{" "}
-                  on{" "}
-                  <Text as="span" font="body" mono>
-                    {hubConfig ? chainRpcUrl(hubConfig) : "the chain RPC"}
-                  </Text>
-                  . A deployed registry with no registrations looks like this — it is not a load error.
-                </Text>
-                {logStats !== undefined ? (
-                  <Text font="caption" color="fgMuted">
-                    Found {logStats.count.toString()} registration event
-                    {logStats.count === 1n ? "" : "s"} from block {logStats.fromBlock}.
-                  </Text>
-                ) : null}
-                <Text font="body">
-                  Register a node at{" "}
-                  <Link as={NextLink} href="/node/register" font="body">
-                    /node/register
-                  </Link>{" "}
-                  using the same chain and registry address as in{" "}
-                  <Text as="span" font="body" mono>
-                    .env.local
-                  </Text>
-                  , then refresh this page.
-                </Text>
-              </VStack>
-            </Banner>
-            {myNodeIds.length > 0 && address ? (
-              <Banner variant="warning" showDismiss={false} bordered title="Your wallet has on-chain nodes">
-                <Text font="body">
-                  {shortAddress(address)} has {myNodeIds.length} node
-                  {myNodeIds.length === 1 ? "" : "s"} via{" "}
-                  <Text as="span" font="body" mono>
-                    operatorNodes
-                  </Text>{" "}
-                  , but no matching registration logs were found (check registry address / FROM_BLOCK / RPC).
-                </Text>
-              </Banner>
-            ) : null}
-          </VStack>
-        ) : null}
+      {/* Warning: wallet has on-chain nodes but no logs */}
+      {isConnected && chainMatches && !registryUnset && !isFetching && !error && rows.length === 0 && myNodeIds.length > 0 && address ? (
+        <Alert variant="warning" className="mb-4">
+          <AlertTitle>Your wallet has on-chain nodes</AlertTitle>
+          <AlertDescription>
+            {shortAddress(address)} has {myNodeIds.length} node{myNodeIds.length === 1 ? "" : "s"} via{" "}
+            <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">operatorNodes</code>, but no matching registration logs were found (check registry address / FROM_BLOCK / RPC).
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
-        <HStack gap={2} style={{ flexWrap: "wrap" }}>
-          <Link as={NextLink} href="/node" font="body">
-            Your nodes
-          </Link>
-        </HStack>
-      </VStack>
-    </Box>
+      {/* Links */}
+      <div className="flex gap-2 flex-wrap pt-4 border-t">
+        <Badge variant="secondary" className="cursor-pointer hover:bg-accent/80">
+          <NextLink href="/node" className="text-sm">Your nodes</NextLink>
+        </Badge>
+      </div>
+
+      {!isConnected && !configError && registryUnset ? (
+        <Skeleton className="h-[200px] w-full" />
+      ) : null}
+    </div>
   );
 }

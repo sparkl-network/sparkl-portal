@@ -28,7 +28,7 @@ export async function activateSessionViaPortal(params: {
   const blockNumber = await publicClient.getBlockNumber();
   const message = buildActivateMessage(sessionId, blockNumber);
   const signature = await walletClient.signMessage({
-    account: account as Address,
+    account: account as unknown as `0x${string}`,
     message,
   });
 

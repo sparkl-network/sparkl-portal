@@ -1,10 +1,7 @@
 "use client";
 
-import { Button } from "@coinbase/cds-web/buttons";
-import { Banner } from "@coinbase/cds-web/banner";
-import { HStack, VStack } from "@coinbase/cds-web/layout";
-import { NavigationBar } from "@coinbase/cds-web/navigation";
-import { Link, Text } from "@coinbase/cds-web/typography";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import NextLink from "next/link";
 import { useMemo, useState } from "react";
@@ -50,75 +47,83 @@ export function AppToolbar() {
   const visibleSwitchError = wrongChain ? switchError : null;
 
   return (
-    <VStack width="100%">
-      <NavigationBar
-        accessibilityLabel="Application toolbar"
-        start={
-          <Text font="title4">
-            <Link as={NextLink} href="/" underline={false}>
+    <div className="w-full">
+      <nav className="flex flex-col gap-0 py-3 px-4 md:px-6">
+        {/* Top row: logo + nav links */}
+        <div className="flex items-center justify-between">
+          <span className="text-lg font-bold">
+            <NextLink href="/" className="hover:underline underline-offset-4">
               Sparkl Portal
-            </Link>
-          </Text>
-        }
-        end={
-          <HStack gap={2}>
-            <Text font="caption" color="fgMuted">
-              {hubSummary}
-            </Text>
+            </NextLink>
+          </span>
+
+          {/* Nav links — hidden on mobile */}
+          <div className="hidden md:flex items-center gap-6 text-sm">
+            <NextLink href="/node" className="text-muted-foreground hover:text-foreground transition-colors">
+              Nodes
+            </NextLink>
+            <NextLink
+              href="/operator"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              title="Operator accounts directory"
+            >
+              Operators
+            </NextLink>
+            <NextLink href="/model" className="text-muted-foreground hover:text-foreground transition-colors">
+              Models
+            </NextLink>
+            <NextLink href="/user" className="text-muted-foreground hover:text-foreground transition-colors">
+              User
+            </NextLink>
+            <NextLink href="/sessions" className="text-muted-foreground hover:text-foreground transition-colors">
+              Sessions
+            </NextLink>
+          </div>
+
+          {/* Right side: chain info + wallet */}
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline text-xs text-muted-foreground">{hubSummary}</span>
             {isConnected && hubConfig?.chainEnv === "assethub-dev-stub" ? (
-              <Button
-                accessibilityLabel="Register dev chain with portal RPC proxy in MetaMask"
-                variant="secondary"
-                compact
-                loading={rpcFixBusy}
-                disabled={rpcFixBusy}
-                onClick={() => {
-                  setRpcFixError(null);
-                  setRpcFixNotice(null);
-                  setRpcFixBusy(true);
+               <Button
+                 variant="secondary"
+                 size="compact"
+                 disabled={rpcFixBusy}
+                 onClick={() => {
+                   setRpcFixError(null);
+                   setRpcFixNotice(null);
+                   setRpcFixBusy(true);
                   void ensureDevWalletNetwork(hubConfig)
                     .then((notice) => {
                       setRpcFixNotice(notice ?? null);
                     })
                     .catch((err: unknown) => {
                       setRpcFixError(
-                        err instanceof Error
-                          ? err.message
-                          : "Could not set wallet RPC",
+                        err instanceof Error ? err.message : "Could not set wallet RPC",
                       );
                     })
                     .finally(() => setRpcFixBusy(false));
                 }}
               >
-                {typeof window !== "undefined" &&
-                /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(
-                  window.location.hostname,
-                )
-                  ? "LAN chain RPC help"
-                  : "Fix wallet RPC (chain node)"}
+                {rpcFixBusy ? "Applying..." : (typeof window !== "undefined" && /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(window.location.hostname) ? "LAN chain RPC help" : "Fix wallet RPC (chain node)")}
               </Button>
             ) : null}
             {isConnected && wrongChain && hubConfig ? (
               <Button
-                accessibilityLabel="Switch wallet to configured Hub chain"
-                variant="negative"
-                compact
-                loading={isSwitchPending}
+                variant="destructive"
+                size="compact"
                 disabled={isSwitchPending}
                 onClick={() => {
                   setSwitchError(null);
                   switchChainAsync?.({ chainId: hubConfig.chainId }).catch(
                     (err: unknown) => {
                       setSwitchError(
-                        err instanceof Error
-                          ? err.message
-                          : "Could not switch network",
+                        err instanceof Error ? err.message : "Could not switch network",
                       );
                     },
                   );
                 }}
               >
-                Switch network
+                {isSwitchPending ? "Switching..." : "Switch network"}
               </Button>
             ) : null}
             <ConnectButton.Custom>
@@ -131,81 +136,62 @@ export function AppToolbar() {
                 />
               )}
             </ConnectButton.Custom>
-          </HStack>
-        }
-      >
-        <HStack gap={3}>
-          <Link as={NextLink} href="/node" font="body" underline={false}>
+          </div>
+        </div>
+
+        {/* Mobile nav links */}
+        <div className="flex md:hidden items-center gap-4 mt-2 pb-1 text-sm">
+          <NextLink href="/node" className="text-muted-foreground hover:text-foreground transition-colors">
             Nodes
-          </Link>
-          <Link
-            as={NextLink}
-            href="/operator"
-            font="body"
-            underline={false}
-            title="Operator accounts directory"
-          >
+          </NextLink>
+          <NextLink href="/operator" className="text-muted-foreground hover:text-foreground transition-colors">
             Operators
-          </Link>
-          <Link as={NextLink} href="/model" font="body" underline={false}>
+          </NextLink>
+          <NextLink href="/model" className="text-muted-foreground hover:text-foreground transition-colors">
             Models
-          </Link>
-          <Link as={NextLink} href="/user" font="body" underline={false}>
+          </NextLink>
+          <NextLink href="/user" className="text-muted-foreground hover:text-foreground transition-colors">
             User
-          </Link>
-          <Link as={NextLink} href="/sessions" font="body" underline={false}>
+          </NextLink>
+          <NextLink href="/sessions" className="text-muted-foreground hover:text-foreground transition-colors">
             Sessions
-          </Link>
-        </HStack>
-      </NavigationBar>
-      {isConnected && wrongChain && hubConfig ? (
-        <Banner
-          variant="warning"
-          startIcon="warning"
-          showDismiss={false}
-          bordered
-          title="Wrong network"
-        >
-          <VStack gap={1}>
-            <Text font="body">
-              Switch to chain {hubConfig.chainId} ({hubConfig.chainName}) to use
-              this portal.
-            </Text>
-            {hubConfig.chainEnv === "assethub-dev-stub" ? (
-              <>
-                <Text font="caption" color="fgMuted">
-                  {`This app requests chain ${hubConfig.chainId} via RPC ${hubConfig.rpcUrl}. ERR_CONNECTION_REFUSED in DevTools means nothing answered at that URL—start Foundry Anvil there (run anvil, or anvil --host 0.0.0.0 if another device loads this UI). Restart yarn dev after changing NEXT_PUBLIC_RPC_URL_ASSHUB_DEV_STUB.`}
-                </Text>
-                <Text font="caption" color="fgMuted">
-                  Rainbow Wallet extension errors involving chrome.runtime.sendMessage
-                  come from the extension—try MetaMask or another injected wallet if the
-                  RPC works but switching still fails.
-                </Text>
-              </>
-            ) : null}
-            {visibleSwitchError ? (
-              <Text font="caption" color="fgMuted">
-                {visibleSwitchError}
-              </Text>
-            ) : null}
-          </VStack>
-        </Banner>
-      ) : null}
-      {isConnected &&
-      hubConfig?.chainEnv === "assethub-dev-stub" &&
-      (rpcFixNotice || rpcFixError) ? (
-        <Banner
-          variant={rpcFixError ? "error" : "informational"}
-          startIcon="warning"
-          showDismiss={false}
-          bordered
-          title="Wallet RPC"
-        >
-          <Text font="caption" color="fgMuted" style={{ whiteSpace: "pre-wrap" }}>
-            {rpcFixError ?? rpcFixNotice}
-          </Text>
-        </Banner>
-      ) : null}
-    </VStack>
+          </NextLink>
+        </div>
+
+        {/* Wrong network warning banner */}
+        {isConnected && wrongChain && hubConfig ? (
+          <Alert variant="warning" className="mt-3">
+            <AlertTitle>Wrong network</AlertTitle>
+            <AlertDescription>
+              Switch to chain {hubConfig.chainId} ({hubConfig.chainName}) to use this portal.
+              {hubConfig.chainEnv === "assethub-dev-stub" ? (
+                <>
+                  {"\n"}This app requests chain {hubConfig.chainId} via RPC {hubConfig.rpcUrl}. ERR_CONNECTION_REFUSED in DevTools means nothing answered at that URL—start Foundry Anvil there (run anvil, or anvil --host 0.0.0.0 if another device loads this UI). Restart yarn dev after changing NEXT_PUBLIC_RPC_URL_ASSHUB_DEV_STUB.
+                  {"\n"}Rainbow Wallet extension errors involving chrome.runtime.sendMessage come from the extension—try MetaMask or another injected wallet if the RPC works but switching still fails.
+                </>
+              ) : null}
+              {visibleSwitchError ? (
+                <span className="text-xs text-muted-foreground mt-1 block">{visibleSwitchError}</span>
+              ) : null}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {/* RPC fix result banner */}
+        {isConnected &&
+        hubConfig?.chainEnv === "assethub-dev-stub" &&
+        (rpcFixNotice || rpcFixError) ? (
+          <Alert
+            variant={rpcFixError ? "destructive" : "informational"}
+            className="mt-3"
+          >
+            <AlertTitle>Wallet RPC</AlertTitle>
+            <AlertDescription style={{ whiteSpace: "pre-wrap" }}>
+              {rpcFixError ?? rpcFixNotice}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </nav>
+    </div>
   );
 }

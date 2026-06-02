@@ -1,57 +1,53 @@
 "use client";
 
-import { Button } from "@coinbase/cds-web/buttons";
-import { Box } from "@coinbase/cds-web/layout";
+import { Button } from "@/components/ui/button";
 import {
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-} from "@coinbase/cds-web/overlays";
-import { Text } from "@coinbase/cds-web/typography";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useState } from "react";
 
 import { ZERO_ADDRESS, type HubChainConfig } from "@/lib/chains";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
 
 function ChainInfoModal({
-  visible,
-  onRequestClose,
+  open,
+  onOpenChange,
   hubConfig,
   escrowUnset,
 }: {
-  visible: boolean;
-  onRequestClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   hubConfig: HubChainConfig;
   escrowUnset: boolean;
 }) {
   const { chainName, chainId, nativeCurrency } = hubConfig;
 
   return (
-    <Modal
-      visible={visible}
-      onRequestClose={onRequestClose}
-      accessibilityLabel="Chain info"
-    >
-      <ModalHeader title="Chain Info" />
-      <ModalBody paddingX={3} paddingY={2}>
-        <Text font="body" color="fgMuted">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Chain Info</DialogTitle>
+        </DialogHeader>
+        <DialogDescription className="text-muted-foreground">
           {chainName} · chain id {chainId} · native {nativeCurrency.symbol} (
           {nativeCurrency.decimals} decimals in app config — match wallet network
           + SettlementEscrow)
           {escrowUnset
             ? " · set NEXT_PUBLIC_SETTLEMENT_ESCROW_ADDRESS_* to enable depositDot"
             : null}
-        </Text>
-      </ModalBody>
-      <ModalFooter
-        primaryAction={
-          <Button variant="secondary" onClick={onRequestClose}>
+        </DialogDescription>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => onOpenChange(false)}>
             Close
           </Button>
-        }
-      />
-    </Modal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -62,14 +58,12 @@ export function EscrowTrustFooter() {
   if (configError) {
     return (
       <footer className="escrow-trust-footer">
-        <Box paddingX={3} paddingY={2}>
-          <Text font="body" color="fgMuted">
+        <div className="px-3 py-2">
+          <p className="text-sm text-muted-foreground">
             SettlementEscrow (depositDot)
-          </Text>
-          <Text font="body" color="fgMuted">
-            {configError}
-          </Text>
-        </Box>
+          </p>
+          <p className="text-sm text-muted-foreground">{configError}</p>
+        </div>
       </footer>
     );
   }
@@ -82,34 +76,32 @@ export function EscrowTrustFooter() {
   return (
     <>
       <ChainInfoModal
-        visible={chainInfoOpen}
-        onRequestClose={() => setChainInfoOpen(false)}
+        open={chainInfoOpen}
+        onOpenChange={(open) => setChainInfoOpen(open)}
         hubConfig={hubConfig}
         escrowUnset={escrowUnset}
       />
       <footer className="escrow-trust-footer">
-        <Box paddingX={3} paddingY={2}>
-          <Text font="body" color="fgMuted">
+        <div className="px-3 py-2">
+          <p className="text-sm text-muted-foreground">
             Native deposits go to SettlementEscrow — verify this contract before
             sending funds
-          </Text>
-          <Text
-            font="body"
-            mono
-            tabularNumbers
-            style={{ wordBreak: "break-all", marginTop: 4 }}
+          </p>
+          <p
+            className="text-sm tabular-nums font-mono break-all"
+            style={{ marginTop: 4 }}
           >
             {escrowUnset ? "Not configured (zero address)" : settlementEscrowAddress}
-          </Text>
+          </p>
           <Button
             variant="secondary"
-            compact
+            size="compact"
             style={{ marginTop: 4 }}
             onClick={() => setChainInfoOpen(true)}
           >
             Chain Info
           </Button>
-        </Box>
+        </div>
       </footer>
     </>
   );

@@ -1,37 +1,26 @@
 "use client";
 
-import { Banner } from "@coinbase/cds-web/banner";
-import { Button } from "@coinbase/cds-web/buttons";
-import { TextInput } from "@coinbase/cds-web/controls";
-import { Box, HStack, VStack } from "@coinbase/cds-web/layout";
-import { SegmentedTabs } from "@coinbase/cds-web/tabs";
-import { Text } from "@coinbase/cds-web/typography";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits, parseUnits } from "viem";
 import { waitForTransactionReceipt } from "viem/actions";
-import {
-  useAccount,
-  useBalance,
-  useChainId,
-  usePublicClient,
-  useReadContract,
-  useWalletClient,
-} from "wagmi";
+import type { WalletClient, PublicClient, Address } from "viem";
+import { useAccount, useBalance, useChainId, usePublicClient, useReadContract, useWalletClient } from "wagmi";
 
 import { settlementEscrowAbi } from "@/lib/abi";
-import { ZERO_ADDRESS } from "@/lib/chains";
+import { ZERO_ADDRESS, chainRpcUrl, isLocalDevChainRpc, portalPublicRpcUrl } from "@/lib/chains";
 import { internalToNative } from "@/lib/evm/dotUnits";
 import { depositDot, withdrawDot } from "@/lib/evm/escrow";
 import { formatTxError } from "@/lib/evm/formatTxError";
 import { isWalletRpcTransportError } from "@/lib/evm/isWalletRpcTransportError";
 import { probeInjectedWalletRpc } from "@/lib/evm/probeWalletRpc";
-import {
-  chainRpcUrl,
-  isLocalDevChainRpc,
-  portalPublicRpcUrl,
-} from "@/lib/chains";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const FUND_TABS = [
   { id: "fund" as const, label: "Fund" },
@@ -41,11 +30,7 @@ const FUND_TABS = [
 function parseDotAmount(raw: string): bigint | null {
   const s = raw.trim();
   if (!s) return null;
-  try {
-    return parseUnits(s, 18);
-  } catch {
-    return null;
-  }
+  try { return parseUnits(s, 18); } catch { return null; }
 }
 
 function escrowWeiToWithdrawField(wei: bigint): string {
@@ -63,9 +48,7 @@ export function UserFundPanel() {
   const { data: walletClient } = useWalletClient();
   const { hubConfig } = useHubChainConfig();
 
-  const [activeTab, setActiveTab] = useState<(typeof FUND_TABS)[number]>(
-    FUND_TABS[0],
-  );
+  const [activeTab, setActiveTab] = useState<(typeof FUND_TABS)[number]>(FUND_TABS[0]);
   const [depositAmt, setDepositAmt] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState("");
   /** Set by Max so withdraw uses exact on-chain wei (no parseUnits round-trip). */
@@ -80,69 +63,27 @@ export function UserFundPanel() {
   const [txError, setTxError] = useState<string | null>(null);
 
   const isDevStub = hubConfig?.chainEnv === "assethub-dev-stub";
-  const localAnvilBackend = hubConfig
-    ? isLocalDevChainRpc(hubConfig.rpcUrl)
-    : false;
+  const localAnvilBackend = hubConfig ? isLocalDevChainRpc(hubConfig.rpcUrl) : false;
 
-  const chainReady = Boolean(
-    isConnected &&
-      hubConfig &&
-      chainId === hubConfig.chainId &&
-      address,
-  );
+  const chainReady = Boolean(isConnected && hubConfig && chainId === hubConfig.chainId && address);
+  const escrowUnset = useMemo(() => { if (!hubConfig?.settlementEscrowAddress) return true; return hubConfig.settlementEscrowAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase(); }, [hubConfig]);
 
-  const escrowUnset = useMemo(() => {
-    if (!hubConfig?.settlementEscrowAddress) return true;
-    return (
-      hubConfig.settlementEscrowAddress.toLowerCase() ===
-      ZERO_ADDRESS.toLowerCase()
-    );
-  }, [hubConfig]);
+  const { data: nativeBalance } = useBalance({ address, query: { enabled: Boolean(chainReady && address) } });
 
-  const { data: nativeBalance } = useBalance({
-    address,
-    query: { enabled: Boolean(chainReady && address) },
-  });
-
-  const {
-    data: balanceRaw,
-    refetch: refetchBalance,
-    isFetching: balanceLoading,
-  } = useReadContract({
+  const { data: balanceRaw, refetch: refetchBalance, isFetching: balanceLoading } = useReadContract({
     address: hubConfig?.settlementEscrowAddress,
     abi: settlementEscrowAbi,
     functionName: "getDotBalances",
     args: address ? [address] : undefined,
-    query: {
-      enabled: Boolean(chainReady && hubConfig && address && !escrowUnset),
-    },
+    query: { enabled: Boolean(chainReady && hubConfig && address && !escrowUnset) },
   });
 
-  const balanceDisplay = useMemo(() => {
-    if (
-      !chainReady ||
-      balanceRaw === undefined ||
-      balanceRaw === null ||
-      typeof balanceRaw !== "bigint"
-    )
-      return "—";
-    return formatUnits(balanceRaw, 18);
-  }, [balanceRaw, chainReady]);
+  const balanceDisplay = useMemo(() => { if (!chainReady || balanceRaw === undefined || balanceRaw === null || typeof balanceRaw !== "bigint") return "—"; return formatUnits(balanceRaw, 18); }, [balanceRaw, chainReady]);
 
   const depositParsed = useMemo(() => parseDotAmount(depositAmt), [depositAmt]);
-  const withdrawParsed = useMemo(
-    () => parseDotAmount(withdrawAmt),
-    [withdrawAmt],
-  );
+  const withdrawParsed = useMemo(() => parseDotAmount(withdrawAmt), [withdrawAmt]);
 
-  const formsDisabled =
-    !chainReady ||
-    escrowUnset ||
-    txBusy ||
-    balanceLoading ||
-    !walletClient ||
-    !hubConfig;
-
+  const formsDisabled = !chainReady || escrowUnset || txBusy || balanceLoading || !walletClient || !hubConfig;
   const isFundTab = activeTab.id === "fund";
 
   async function probeWalletRpc() {
@@ -151,491 +92,165 @@ export function UserFundPanel() {
     setWalletRpcProbe(null);
     setWalletRpcProbeOk(null);
     try {
-      const result = await probeInjectedWalletRpc(hubConfig.chainId, {
-        escrowAddress: hubConfig.settlementEscrowAddress,
-        expectedChainRpcUrl: chainRpcUrl(hubConfig),
-      });
+      const result = await probeInjectedWalletRpc(hubConfig.chainId, { escrowAddress: hubConfig.settlementEscrowAddress, expectedChainRpcUrl: chainRpcUrl(hubConfig) });
       if (result.ok) {
         setWalletRpcProbeOk(true);
-        setWalletRpcProbe(
-          `Wallet chain RPC OK (chain ${result.chainId}, escrow bytecode present). Sends go to ${chainRpcUrl(hubConfig)} only.`,
-        );
+        setWalletRpcProbe(`Wallet chain RPC OK (chain ${result.chainId}, escrow bytecode present). Sends go to ${chainRpcUrl(hubConfig)} only.`);
       } else {
         setWalletRpcProbeOk(false);
         setWalletRpcProbe(result.message);
       }
-    } finally {
-      setWalletRpcProbing(false);
-    }
+    } finally { setWalletRpcProbing(false); }
   }
 
   useEffect(() => {
-    if (!chainReady || !hubConfig || escrowUnset) {
-      setWalletRpcProbe(null);
-      setWalletRpcProbeOk(null);
-      return;
-    }
+    if (!chainReady || !hubConfig || escrowUnset) { setWalletRpcProbe(null); setWalletRpcProbeOk(null); return; }
     void probeWalletRpc();
-  }, [
-    chainReady,
-    hubConfig?.chainId,
-    hubConfig?.settlementEscrowAddress,
-    hubConfig?.rpcUrl,
-    escrowUnset,
-  ]);
+  }, [chainReady, hubConfig?.chainId, hubConfig?.settlementEscrowAddress, hubConfig?.rpcUrl, escrowUnset]);
 
-  async function postDevAnvilEscrow(
-    action: "deposit" | "withdraw",
-    amountInternal: bigint,
-  ): Promise<`0x${string}`> {
-    if (!address || !publicClient) {
-      throw new Error("Wallet not connected");
-    }
-    const res = await fetch("/api/dev/anvil-escrow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action,
-        address,
-        amountInternal: amountInternal.toString(),
-      }),
-    });
-    const json = (await res.json()) as { hash?: string; error?: string };
-    if (!res.ok || !json.hash) {
-      throw new Error(json.error ?? `Dev ${action} failed (${res.status})`);
-    }
-    const hash = json.hash as `0x${string}`;
+  async function postDevAnvilEscrow(action: "deposit" | "withdraw", amountInternal: bigint): Promise<Address> {
+    if (!address || !publicClient) throw new Error("Wallet not connected");
+    const res = await fetch("/api/dev/anvil-escrow", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, address, amountInternal: amountInternal.toString() }) });
+    const json = (await res.json()) as { hash?: Address; error?: string };
+    if (!res.ok || !json.hash) throw new Error(json.error ?? `Dev ${action} failed (${res.status})`);
+    const hash = json.hash;
     await waitForTransactionReceipt(publicClient, { hash });
     return hash;
   }
 
-  async function finishEscrowTx(
-    action: "deposit" | "withdraw",
-    hash: `0x${string}`,
-    notice?: string,
-  ) {
+  async function finishEscrowTx(action: "deposit" | "withdraw", hash: Address, notice?: string) {
     setLastTxHash(hash);
     setTxError(null);
     setTxNotice(notice ?? null);
     await refetchBalance();
     await queryClient.invalidateQueries({ queryKey: ["balance"] });
     if (action === "deposit") setDepositAmt("");
-    else {
-      setWithdrawAmt("");
-      setWithdrawWeiExact(null);
-    }
+    else { setWithdrawAmt(""); setWithdrawWeiExact(null); }
   }
 
-  async function tryAnvilEscrowFallback(
-    action: "deposit" | "withdraw",
-    amountInternal: bigint,
-    walletErr: unknown,
-  ): Promise<boolean> {
+  async function tryAnvilEscrowFallback(action: "deposit" | "withdraw", amountInternal: bigint, walletErr: unknown): Promise<boolean> {
     if (!isDevStub || !localAnvilBackend) return false;
     try {
       const hash = await postDevAnvilEscrow(action, amountInternal);
-      await finishEscrowTx(
-        action,
-        hash,
-        "MetaMask could not reach its RPC; completed via local Anvil (dev bypass).",
-      );
+      await finishEscrowTx(action, hash, "MetaMask could not reach its RPC; completed via local Anvil (dev bypass).");
       return true;
     } catch (devErr) {
-      setTxError(
-        `${formatTxError(devErr)}\n\nWallet error:\n${formatTxError(walletErr)}`,
-      );
+      setTxError(`${formatTxError(devErr)}\n\nWallet error:\n${formatTxError(walletErr)}`);
       return true;
     }
   }
 
   async function handleDevAnvilEscrow(action: "deposit" | "withdraw") {
-    if (
-      !hubConfig ||
-      !chainReady ||
-      !address ||
-      escrowUnset ||
-      !publicClient
-    )
-      return;
-    const amount =
-      action === "deposit"
-        ? depositParsed
-        : (withdrawWeiExact ?? withdrawParsed);
+    if (!hubConfig || !chainReady || !address || escrowUnset || !publicClient) return;
+    const amount = action === "deposit" ? depositParsed : (withdrawWeiExact ?? withdrawParsed);
     if (amount === null || amount <= BigInt(0)) return;
 
     setDevAnvilBusy(true);
     setLastTxHash(null);
     setTxNotice(null);
     setTxError(null);
-    try {
-      const hash = await postDevAnvilEscrow(action, amount);
-      await finishEscrowTx(action, hash);
-    } catch (e) {
-      setTxError(formatTxError(e));
-    } finally {
-      setDevAnvilBusy(false);
-    }
+    try { const hash = await postDevAnvilEscrow(action, amount); await finishEscrowTx(action, hash); } catch (e) { setTxError(formatTxError(e)); } finally { setDevAnvilBusy(false); }
   }
 
   async function handleDeposit() {
-    if (
-      !walletClient ||
-      !hubConfig ||
-      !chainReady ||
-      escrowUnset ||
-      !publicClient ||
-      depositParsed === null ||
-      depositParsed <= BigInt(0)
-    )
-      return;
+    if (!walletClient || !hubConfig || !chainReady || escrowUnset || !publicClient || depositParsed === null || depositParsed <= BigInt(0)) return;
     setTxBusy(true);
     setLastTxHash(null);
     setTxNotice(null);
     setTxError(null);
     try {
       if (isDevStub) {
-        const probe = await probeInjectedWalletRpc(hubConfig.chainId, {
-          escrowAddress: hubConfig.settlementEscrowAddress,
-          expectedChainRpcUrl: chainRpcUrl(hubConfig),
-        });
-        if (!probe.ok) {
-          setTxError(
-            `${probe.message}\n\nDeposit blocked until MetaMask uses the chain RPC from .env.`,
-          );
-          if (localAnvilBackend) {
-            const ok = await tryAnvilEscrowFallback(
-              "deposit",
-              depositParsed,
-              new Error(probe.message),
-            );
-            if (ok) return;
-          }
-          return;
-        }
+        const probe = await probeInjectedWalletRpc(hubConfig.chainId, { escrowAddress: hubConfig.settlementEscrowAddress, expectedChainRpcUrl: chainRpcUrl(hubConfig) });
+        if (!probe.ok) { setTxError(`${probe.message}\n\nDeposit blocked until MetaMask uses the chain RPC from .env.`); if (localAnvilBackend) { const ok = await tryAnvilEscrowFallback("deposit", depositParsed, new Error(probe.message)); if (ok) return; } return; }
       }
-      const valueWei = internalToNative(
-        depositParsed,
-        hubConfig.nativeCurrency.decimals,
-      );
-      if (nativeBalance && nativeBalance.value < valueWei) {
-        setTxError(
-          `Wallet balance is too low for a ${depositAmt.trim()} DOT deposit. You need at least ${formatUnits(valueWei, hubConfig.nativeCurrency.decimals)} ${hubConfig.nativeCurrency.symbol} in the wallet (plus gas).`,
-        );
-        return;
-      }
-      const hash = await depositDot(
-        walletClient,
-        publicClient,
-        hubConfig.settlementEscrowAddress,
-        depositParsed,
-        hubConfig.nativeCurrency.decimals,
-      );
+      const valueWei = internalToNative(depositParsed, hubConfig.nativeCurrency.decimals);
+      if (nativeBalance && nativeBalance.value < valueWei) { setTxError(`Wallet balance is too low for a ${depositAmt.trim()} DOT deposit. You need at least ${formatUnits(valueWei, hubConfig.nativeCurrency.decimals)} ${hubConfig.nativeCurrency.symbol} in the wallet (plus gas).`); return; }
+      const hash = await depositDot(walletClient, publicClient, hubConfig.settlementEscrowAddress, depositParsed, hubConfig.nativeCurrency.decimals);
       await finishEscrowTx("deposit", hash);
-    } catch (e) {
-      if (isWalletRpcTransportError(e)) {
-        const ok = await tryAnvilEscrowFallback("deposit", depositParsed, e);
-        if (ok) return;
-      }
-      setTxError(formatTxError(e));
-    } finally {
-      setTxBusy(false);
-    }
+    } catch (e) { if (isWalletRpcTransportError(e)) { const ok = await tryAnvilEscrowFallback("deposit", depositParsed, e); if (ok) return; } setTxError(formatTxError(e)); } finally { setTxBusy(false); }
   }
 
   async function handleWithdraw() {
-    if (
-      !walletClient ||
-      !hubConfig ||
-      !chainReady ||
-      escrowUnset ||
-      !publicClient ||
-      withdrawParsed === null ||
-      withdrawParsed <= BigInt(0)
-    )
-      return;
+    if (!walletClient || !hubConfig || !chainReady || escrowUnset || !publicClient || withdrawParsed === null || withdrawParsed <= BigInt(0)) return;
     setTxBusy(true);
     setLastTxHash(null);
     setTxNotice(null);
     setTxError(null);
     try {
       let amountInternal = withdrawWeiExact ?? withdrawParsed;
-      if (
-        balanceRaw !== undefined &&
-        balanceRaw !== null &&
-        typeof balanceRaw === "bigint" &&
-        amountInternal > balanceRaw
-      ) {
-        amountInternal = balanceRaw;
-      }
-      if (isDevStub) {
-        const probe = await probeInjectedWalletRpc(hubConfig.chainId, {
-          escrowAddress: hubConfig.settlementEscrowAddress,
-          expectedChainRpcUrl: chainRpcUrl(hubConfig),
-        });
-        if (!probe.ok) {
-          setTxError(
-            `${probe.message}\n\nWithdraw blocked until MetaMask uses the chain RPC from .env.`,
-          );
-          if (localAnvilBackend) {
-            const ok = await tryAnvilEscrowFallback(
-              "withdraw",
-              amountInternal,
-              new Error(probe.message),
-            );
-            if (ok) return;
-          }
-          return;
-        }
-      }
-      const hash = await withdrawDot(
-        walletClient,
-        publicClient,
-        hubConfig.settlementEscrowAddress,
-        amountInternal,
-      );
+      if (balanceRaw !== undefined && balanceRaw !== null && typeof balanceRaw === "bigint" && amountInternal > balanceRaw) amountInternal = balanceRaw;
+
+      if (isDevStub) { const probe = await probeInjectedWalletRpc(hubConfig.chainId, { escrowAddress: hubConfig.settlementEscrowAddress, expectedChainRpcUrl: chainRpcUrl(hubConfig) }); if (!probe.ok) { setTxError(`${probe.message}\n\nWithdraw blocked until MetaMask uses the chain RPC from .env.`); if (localAnvilBackend) { const ok = await tryAnvilEscrowFallback("withdraw", amountInternal, new Error(probe.message)); if (ok) return; } return; } }
+      const hash = await withdrawDot(walletClient, publicClient, hubConfig.settlementEscrowAddress, amountInternal);
       await finishEscrowTx("withdraw", hash);
-    } catch (e) {
-      if (isWalletRpcTransportError(e)) {
-        let amountInternal = withdrawWeiExact ?? withdrawParsed;
-        if (
-          balanceRaw !== undefined &&
-          balanceRaw !== null &&
-          typeof balanceRaw === "bigint" &&
-          amountInternal > balanceRaw
-        ) {
-          amountInternal = balanceRaw;
-        }
-        const ok = await tryAnvilEscrowFallback("withdraw", amountInternal, e);
-        if (ok) return;
-      }
-      setTxError(formatTxError(e));
-    } finally {
-      setTxBusy(false);
-    }
+    } catch (e) { if (isWalletRpcTransportError(e)) { let amountInternal = withdrawWeiExact ?? withdrawParsed; if (balanceRaw !== undefined && balanceRaw !== null && typeof balanceRaw === "bigint" && amountInternal > balanceRaw) amountInternal = balanceRaw; const ok = await tryAnvilEscrowFallback("withdraw", amountInternal, e); if (ok) return; } setTxError(formatTxError(e)); } finally { setTxBusy(false); }
   }
 
   return (
-    <Box className="user-fund-panel">
-      <VStack gap={3} alignItems="stretch">
-        <VStack gap={0.5} alignItems="flex-start">
-          <Text font="caption" color="fgMuted">
-            Escrow balance
-          </Text>
-          <Text font="title2" mono tabularNumbers>
-            {balanceLoading ? "…" : balanceDisplay}{" "}
-            <Text as="span" font="body" color="fgMuted">
-              DOT
-            </Text>
-          </Text>
-        </VStack>
+    <Card className="w-full lg:w-80 xl:w-96 flex-shrink-0 h-fit sticky top-[calc(var(--header-height)+1rem)]">
+      <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Escrow balance</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        {/* Balance display */}
+        <div><code className="font-mono">{balanceLoading ? "&hellip;" : balanceDisplay}</code><span className="text-sm text-muted-foreground ml-1">DOT</span></div>
 
-        <SegmentedTabs
-          width="100%"
-          tabs={FUND_TABS}
-          activeTab={activeTab}
-          onChange={(tab) => {
-            if (tab) setActiveTab(tab);
-          }}
-        />
+        {/* Tabs */}
+        <Tabs value={activeTab.id} onValueChange={(v) => { const tab = FUND_TABS.find(t => t.id === v); if (tab) setActiveTab(tab); }}>
+          <TabsList className="w-full"><TabsTrigger value="fund" className="flex-1">Fund</TabsTrigger><TabsTrigger value="withdraw" className="flex-1">Withdraw</TabsTrigger></TabsList>
+        </Tabs>
 
-        <VStack gap={2} alignItems="stretch">
-          <Text font="caption" color="fgMuted">
-            {isFundTab
-              ? "Deposit whole DOT via payable depositDot."
-              : "Withdraw internal balance to native DOT."}
-          </Text>
+        <p className="text-xs text-muted-foreground">{isFundTab ? "Deposit whole DOT via payable depositDot." : "Withdraw internal balance to native DOT."}</p>
 
-          {isFundTab ? (
-            <TextInput
-              label="Amount"
-              placeholder="0.0"
-              value={depositAmt}
-              onChange={(e) => setDepositAmt(e.target.value)}
-              disabled={formsDisabled}
-              suffix="DOT"
-            />
-          ) : (
-            <TextInput
-              width="100%"
-              label="Amount"
-              labelNode={
-                <HStack
-                  width="100%"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
-                  <Text font="label2">Amount</Text>
-                  <Button
-                    accessibilityLabel="Fill withdraw amount with full escrow balance"
-                    variant="secondary"
-                    compact
-                    disabled={
-                      formsDisabled ||
-                      balanceRaw === undefined ||
-                      balanceRaw === null ||
-                      typeof balanceRaw !== "bigint" ||
-                      balanceRaw <= BigInt(0)
-                    }
-                    onClick={() => {
-                      if (
-                        balanceRaw !== undefined &&
-                        balanceRaw !== null &&
-                        typeof balanceRaw === "bigint" &&
-                        balanceRaw > BigInt(0)
-                      ) {
-                        setWithdrawWeiExact(balanceRaw);
-                        setWithdrawAmt(escrowWeiToWithdrawField(balanceRaw));
-                      }
-                    }}
-                  >
-                    Max
-                  </Button>
-                </HStack>
-              }
-              placeholder="0.0"
-              value={withdrawAmt}
-              onChange={(e) => {
-                setWithdrawWeiExact(null);
-                setWithdrawAmt(e.target.value);
-              }}
-              disabled={formsDisabled}
-              suffix="DOT"
-            />
-          )}
+        {/* Deposit input */}
+        {isFundTab && (
+          <div className="space-y-1">
+            <Label htmlFor="depositAmt">Amount</Label>
+            <div className="relative"><Input id="depositAmt" placeholder="0.0" value={depositAmt} onChange={(e) => setDepositAmt(e.target.value)} disabled={formsDisabled} className="pr-12" /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DOT</span></div>
+          </div>
+        )}
 
-          <Button
-            variant="primary"
-            width="100%"
-            disabled={
-              formsDisabled ||
-              devAnvilBusy ||
-              (isFundTab
-                ? depositParsed === null || depositParsed <= BigInt(0)
-                : withdrawParsed === null || withdrawParsed <= BigInt(0))
-            }
-            loading={txBusy}
-            onClick={() =>
-              void (isFundTab ? handleDeposit() : handleWithdraw())
-            }
-          >
-            {isFundTab ? "Deposit DOT" : "Withdraw DOT"}
-          </Button>
+        {/* Withdraw input */}
+        {!isFundTab && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="withdrawAmt">Amount</Label>
+              <Button variant="secondary" size="compact" disabled={!chainReady || escrowUnset || txBusy || devAnvilBusy || balanceRaw === undefined || balanceRaw === null || typeof balanceRaw !== "bigint" || balanceRaw <= BigInt(0)} onClick={() => { if (balanceRaw !== undefined && balanceRaw !== null && typeof balanceRaw === "bigint" && balanceRaw > 0n) { setWithdrawWeiExact(balanceRaw); setWithdrawAmt(escrowWeiToWithdrawField(balanceRaw)); } }}>Max</Button>
+            </div>
+            <div className="relative"><Input id="withdrawAmt" placeholder="0.0" value={withdrawAmt} onChange={(e) => { setWithdrawWeiExact(null); setWithdrawAmt(e.target.value); }} disabled={formsDisabled} className="pr-12" /><span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">DOT</span></div>
+          </div>
+        )}
 
-          {chainReady && !escrowUnset && hubConfig ? (
-            <VStack gap={1} alignItems="stretch">
-              {walletRpcProbeOk === false ? (
-                <Banner variant="error" startIcon="warning" showDismiss={false}>
-                  <Text font="caption" style={{ whiteSpace: "pre-wrap" }}>
-                    {walletRpcProbe}
-                  </Text>
-                </Banner>
-              ) : null}
-              <Button
-                variant="secondary"
-                width="100%"
-                compact
-                loading={walletRpcProbing}
-                disabled={walletRpcProbing || txBusy || devAnvilBusy}
-                onClick={() => void probeWalletRpc()}
-              >
-                Test MetaMask chain RPC
-              </Button>
-              {walletRpcProbe && walletRpcProbeOk !== false ? (
-                <Text font="caption" color="fgMuted" style={{ whiteSpace: "pre-wrap" }}>
-                  {walletRpcProbe}
-                </Text>
-              ) : null}
-            </VStack>
-          ) : null}
+        {/* Submit button */}
+        <Button variant="default" className="w-full" disabled={formsDisabled || devAnvilBusy || txBusy || (isFundTab ? depositParsed === null || depositParsed <= BigInt(0) : withdrawParsed === null || withdrawParsed <= BigInt(0))} onClick={() => void (isFundTab ? handleDeposit() : handleWithdraw())}>
+          {txBusy ? "Processing..." : isFundTab ? "Deposit DOT" : "Withdraw DOT"}
+        </Button>
 
-          {isDevStub && localAnvilBackend && chainReady && !escrowUnset ? (
-            <VStack gap={1} alignItems="stretch">
-              <Button
-                variant="secondary"
-                width="100%"
-                disabled={
-                  txBusy ||
-                  devAnvilBusy ||
-                  (isFundTab
-                    ? depositParsed === null || depositParsed <= BigInt(0)
-                    : withdrawParsed === null || withdrawParsed <= BigInt(0))
-                }
-                loading={devAnvilBusy}
-                onClick={() =>
-                  void handleDevAnvilEscrow(isFundTab ? "deposit" : "withdraw")
-                }
-              >
-                {isFundTab
-                  ? "Dev deposit (Anvil, no MetaMask RPC)"
-                  : "Dev withdraw (Anvil, no MetaMask RPC)"}
-              </Button>
-              <Text font="caption" color="fgMuted">
-                Dev deposit impersonates your connected address on local Anvil via
-                the server RPC_PROXY_TARGET. Use when MetaMask shows Failed to fetch
-                and the Next terminal never logs eth_sendTransaction.
-              </Text>
-            </VStack>
-          ) : null}
-        </VStack>
+        {/* RPC probe */}
+        {chainReady && !escrowUnset && hubConfig && (<>
+          {walletRpcProbeOk === false && (<Alert variant="destructive"><AlertDescription className="whitespace-pre-wrap">{walletRpcProbe}</AlertDescription></Alert>)}
+          <Button variant="outline" className="w-full" onClick={() => void probeWalletRpc()}>{walletRpcProbing ? "Testing..." : "Test MetaMask chain RPC"}</Button>
+          {walletRpcProbe && walletRpcProbeOk !== false && (<p className="text-xs text-muted-foreground whitespace-pre-wrap">{walletRpcProbe}</p>)}
+        </>)}
 
-        {lastTxHash ? (
-          <VStack gap={0.5} alignItems="flex-start">
-            <Text font="caption" color="fgMuted">
-              Last transaction
-            </Text>
-            <Text font="caption" mono style={{ wordBreak: "break-all" }}>
-              {lastTxHash}
-            </Text>
-          </VStack>
-        ) : null}
+        {/* Dev Anvil */}
+        {isDevStub && localAnvilBackend && chainReady && !escrowUnset && (<>
+          <Button variant="outline" className="w-full" onClick={() => void handleDevAnvilEscrow(isFundTab ? "deposit" : "withdraw")}>{devAnvilBusy ? (isFundTab ? "Depositing..." : "Withdrawing...") : (isFundTab ? "Dev deposit (Anvil, no MetaMask RPC)" : "Dev withdraw (Anvil, no MetaMask RPC)")}</Button>
+          <p className="text-xs text-muted-foreground">Dev deposit impersonates your connected address on local Anvil via the server RPC_PROXY_TARGET. Use when MetaMask shows Failed to fetch and the Next terminal never logs eth_sendTransaction.</p>
+        </>)}
 
-        {txNotice ? (
-          <Banner variant="informational" startIcon="info" showDismiss={false}>
-            <Text font="caption">{txNotice}</Text>
-          </Banner>
-        ) : null}
+        {/* Last tx */}
+        {lastTxHash && (<div><span className="text-xs text-muted-foreground">Last transaction</span><br /><code className="break-all text-xs">{lastTxHash}</code></div>)}
 
-        {hubConfig?.chainEnv === "assethub-dev-stub" && chainReady && !escrowUnset ? (
-          <Text font="caption" color="fgMuted">
-            MetaMask must use chain RPC{" "}
-            <Text as="span" font="caption" mono>
-              {chainRpcUrl(hubConfig)}
-            </Text>
-            . Portal reads use{" "}
-            <Text as="span" font="caption" mono>
-              {typeof window !== "undefined"
-                ? portalPublicRpcUrl(hubConfig, window.location.origin)
-                : "…/api/rpc"}
-            </Text>{" "}
-            (not for wallet sends). Toolbar → Fix wallet RPC registers{" "}
-            <Text as="span" font="caption" mono>
-              {chainRpcUrl(hubConfig)}
-            </Text>
-            . Ignore proxy logs where{" "}
-            <Text as="span" font="caption" mono>
-              symbol()
-            </Text>{" "}
-            /{" "}
-            <Text as="span" font="caption" mono>
-              balanceOf
-            </Text>{" "}
-            revert on the escrow.
-          </Text>
-        ) : null}
+        {/* Tx notice */}
+        {txNotice && (<Alert variant="default" className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800"><AlertTitle>Notice</AlertTitle><AlertDescription>{txNotice}</AlertDescription></Alert>)}
 
-        {txError ? (
-          <Banner
-            variant="error"
-            startIcon="warning"
-            showDismiss={false}
-            title="Transaction error"
-          >
-            <Text font="caption" style={{ whiteSpace: "pre-wrap" }}>
-              {txError}
-            </Text>
-          </Banner>
-        ) : null}
-      </VStack>
-    </Box>
+        {/* MetaMask RPC hint */}
+        {hubConfig?.chainEnv === "assethub-dev-stub" && chainReady && !escrowUnset && (
+          <p className="text-xs text-muted-foreground">MetaMask must use chain RPC <code>{chainRpcUrl(hubConfig)}</code>. Portal reads use <code>{typeof window !== "undefined" ? portalPublicRpcUrl(hubConfig, window.location.origin) : "&hellip;/api/rpc"}</code> (not for wallet sends). Toolbar &rarr; Fix wallet RPC registers <code>{chainRpcUrl(hubConfig)}</code>. Ignore proxy logs where <code>symbol()</code>/<code>balanceOf</code> revert on the escrow.</p>
+        )}
+
+        {/* Tx error */}
+        {txError && (<Alert variant="destructive"><AlertTitle>Transaction error</AlertTitle><AlertDescription className="whitespace-pre-wrap">{txError}</AlertDescription></Alert>)}
+      </CardContent>
+    </Card>
   );
 }

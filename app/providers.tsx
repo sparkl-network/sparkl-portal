@@ -2,11 +2,6 @@
 
 import "@rainbow-me/rainbowkit/styles.css";
 
-import { MediaQueryProvider, ThemeProvider } from "@coinbase/cds-web/system";
-import { defaultTheme } from "@coinbase/cds-web/themes/defaultTheme";
-import { Box } from "@coinbase/cds-web/layout";
-import { PortalProvider } from "@coinbase/cds-web/overlays";
-import { Text } from "@coinbase/cds-web/typography";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
@@ -41,39 +36,31 @@ export function Providers({ children }: { children: ReactNode }) {
   }, []);
 
   const shell = (
-    <MediaQueryProvider>
-      <ThemeProvider theme={defaultTheme} activeColorScheme="light">
-        <PortalProvider>
-          {wagmi.status === "loading" ? (
-            <Box paddingX={3} paddingY={3}>
-              <Text font="body" color="fgMuted">
-                Loading wallet…
-              </Text>
-            </Box>
-          ) : wagmi.status === "error" ? (
-            <Box paddingX={3} paddingY={3}>
-              <Text font="body" color="fgMuted">
-                {wagmi.message}
-              </Text>
-            </Box>
-          ) : (
-            <WagmiProvider config={wagmi.config}>
-              <QueryClientProvider client={queryClient}>
-                <RainbowKitProvider>
-                  <div className="app-shell">
-                    <div className="app-toolbar-sticky">
-                      <AppToolbar />
-                    </div>
-                    <div className="app-main">{children}</div>
-                    <EscrowTrustFooter />
-                  </div>
-                </RainbowKitProvider>
-              </QueryClientProvider>
-            </WagmiProvider>
-          )}
-        </PortalProvider>
-      </ThemeProvider>
-    </MediaQueryProvider>
+    <>
+      {wagmi.status === "loading" ? (
+        <div className="p-3">
+          <span className="text-sm text-muted-foreground">Loading wallet…</span>
+        </div>
+      ) : wagmi.status === "error" ? (
+        <div className="p-3">
+          <span className="text-sm text-muted-foreground">{wagmi.message}</span>
+        </div>
+      ) : (
+        <WagmiProvider config={wagmi.config}>
+          <QueryClientProvider client={queryClient}>
+            <RainbowKitProvider>
+              <div className="app-shell">
+                <div className="app-toolbar-sticky">
+                  <AppToolbar />
+                </div>
+                <div className="app-main">{children}</div>
+                <EscrowTrustFooter />
+              </div>
+            </RainbowKitProvider>
+          </QueryClientProvider>
+        </WagmiProvider>
+      )}
+    </>
   );
 
   return shell;

@@ -1,8 +1,6 @@
 "use client";
 
-import { Button } from "@coinbase/cds-web/buttons";
-import { VStack } from "@coinbase/cds-web/layout";
-import { Text } from "@coinbase/cds-web/typography";
+import { Button } from "@/components/ui/button";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
 import { useAccount, useChainId, useReadContract } from "wagmi";
@@ -15,12 +13,6 @@ type RkAccount = {
   address: string;
   displayBalance?: string;
   displayName: string;
-};
-
-const accountInfoTextStyle = {
-  fontSize: "0.6875rem",
-  lineHeight: "0.8125rem",
-  textTransform: "none" as const,
 };
 
 export function ToolbarConnectAccount({
@@ -91,9 +83,7 @@ export function ToolbarConnectAccount({
   if (!showConnected || !connectedAccount) {
     return (
       <Button
-        accessibilityLabel="Connect wallet"
-        compact
-        variant="primary"
+        size="compact"
         onClick={openConnectModal}
       >
         Connect Wallet
@@ -103,43 +93,21 @@ export function ToolbarConnectAccount({
 
   return (
     <Button
-      accessibilityLabel="Open account options"
-      compact
       variant="secondary"
+      size="compact"
       onClick={openAccountModal}
     >
-      <VStack
-        gap={0.25}
-        style={{ alignItems: "flex-end", textAlign: "right" as const }}
-      >
-        <Text
-          font="legal"
-          color="fgMuted"
-          mono
-          noWrap
-          style={accountInfoTextStyle}
-        >
+      <div className="flex flex-col items-end gap-0 text-right">
+        <span className="text-[10px] leading-[12px] tabular-nums font-mono text-muted-foreground truncate max-w-[160px]">
           {connectedAccount.displayName}
-        </Text>
-        <Text
-          font="legal"
-          color="fgMuted"
-          tabularNumbers
-          noWrap
-          style={accountInfoTextStyle}
-        >
+        </span>
+        <span className="text-[10px] leading-[12px] tabular-nums text-muted-foreground truncate max-w-[160px]">
           Wallet · {walletDisplay}
-        </Text>
-        <Text
-          font="legal"
-          color="fgMuted"
-          tabularNumbers
-          noWrap
-          style={accountInfoTextStyle}
-        >
+        </span>
+        <span className="text-[10px] leading-[12px] tabular-nums text-muted-foreground truncate max-w-[160px]">
           Escrow · {escrowDisplay}
-        </Text>
-      </VStack>
+        </span>
+      </div>
     </Button>
   );
 }

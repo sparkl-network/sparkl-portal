@@ -364,7 +364,7 @@ export function parseSessionIdFromReceipt(
         data: log.data,
         topics: log.topics,
       });
-      const args = decoded.args as { sessionId: bigint };
+      const args = decoded.args as unknown as { sessionId: bigint };
       return args.sessionId;
     } catch {
       continue;

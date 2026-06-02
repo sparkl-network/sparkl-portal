@@ -1,14 +1,5 @@
 "use client";
 
-import { Box, HStack } from "@coinbase/cds-web/layout";
-import { Text } from "@coinbase/cds-web/typography";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@coinbase/cds-web/tables";
 import { useRouter } from "next/navigation";
 import { getAddress, type Address } from "viem";
 
@@ -27,12 +18,9 @@ function OperatorIdenticon({ address }: { address: Address }) {
   const h = hueFromHex(address);
   const h2 = (h + 47) % 360;
   return (
-    <Box
-      flexShrink={0}
-      width={10}
-      height={10}
+    <div
+      className="flex-shrink-0 w-[10px] h-[10px] rounded-lg"
       style={{
-        borderRadius: 8,
         background: `linear-gradient(135deg, hsl(${h}, 62%, 42%), hsl(${h2}, 58%, 32%))`,
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
       }}
@@ -60,15 +48,10 @@ function OperatorStatusDot({
         ? "Has active listed nodes"
         : "No active listed nodes";
   return (
-    <Box
+    <div
+      className="flex-shrink-0 w-[6px] h-[6px] rounded-full"
+      style={{ backgroundColor: color }}
       title={title}
-      width={6}
-      height={6}
-      style={{
-        borderRadius: 9999,
-        backgroundColor: color,
-        flexShrink: 0,
-      }}
     />
   );
 }
@@ -85,107 +68,102 @@ export function OperatorDirectoryTable({ rows }: OperatorDirectoryTableProps) {
   const router = useRouter();
 
   return (
-    <Table
-      bordered
-      compact
-      tableLayout="fixed"
-      maxHeight="min(70vh, 720px)"
-      style={{ width: "100%" }}
-    >
-      <TableHeader sticky>
-        <TableRow>
-          <TableCell as="th" scope="col" title="Operator" width="34%" />
-          <TableCell as="th" scope="col" title="Status" width="14%" />
-          <TableCell
-            as="th"
-            scope="col"
-            title="Nodes"
-            justifyContent="flex-end"
-            width="12%"
-          />
-          <TableCell
-            as="th"
-            scope="col"
-            title="Active"
-            justifyContent="flex-end"
-            width="14%"
-          />
-          <TableCell
-            as="th"
-            scope="col"
-            title="TEE"
-            justifyContent="flex-end"
-            width="14%"
-          />
-          <TableCell
-            as="th"
-            scope="col"
-            title="Open"
-            justifyContent="flex-end"
-            width="12%"
-          />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => {
-          const op = getAddress(row.operator);
-          const statusTitle =
-            row.nodeCount === 0
-              ? "Waiting"
-              : row.activeRegisteredNodeCount > 0
-                ? "Active"
-                : "Inactive";
-
-          return (
-            <TableRow
-              key={op}
-              onClick={() => router.push(`/operator/${op}`)}
-              style={{ cursor: "pointer" }}
+    <div className="relative w-full overflow-auto rounded-lg border">
+      <table className="w-full caption-bottom text-sm">
+        <thead className="[&_tr]:border-b sticky top-0 bg-background">
+          <tr>
+            <th
+              className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: "34%" }}
             >
-              <TableCell>
-                <HStack gap={2} alignItems="center">
-                  <OperatorIdenticon address={op} />
-                  <OperatorStatusDot
-                    nodeCount={row.nodeCount}
-                    activeRegisteredNodeCount={row.activeRegisteredNodeCount}
-                  />
-                  <Text
-                    font="body"
-                    mono
-                    tabularNumbers
-                    style={{ wordBreak: "break-all" }}
-                  >
-                    {op}
-                  </Text>
-                </HStack>
-              </TableCell>
-              <TableCell>
-                <Text font="body">{statusTitle}</Text>
-              </TableCell>
-              <TableCell justifyContent="flex-end">
-                <Text font="body" mono tabularNumbers>
-                  {row.nodeCount}
-                </Text>
-              </TableCell>
-              <TableCell justifyContent="flex-end">
-                <Text font="body" mono tabularNumbers>
-                  {row.activeRegisteredNodeCount}
-                </Text>
-              </TableCell>
-              <TableCell justifyContent="flex-end">
-                <Text font="body" mono tabularNumbers>
-                  {row.teeCapableNodeCount}
-                </Text>
-              </TableCell>
-              <TableCell justifyContent="flex-end">
-                <Text font="label2" color="fgMuted">
-                  →
-                </Text>
-              </TableCell>
-            </TableRow>
-          );
-        })}
-      </TableBody>
-    </Table>
+              Operator
+            </th>
+            <th
+              className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: "14%" }}
+            >
+              Status
+            </th>
+            <th
+              className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: "12%" }}
+            >
+              Nodes
+            </th>
+            <th
+              className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: "14%" }}
+            >
+              Active
+            </th>
+            <th
+              className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: "14%" }}
+            >
+              TEE
+            </th>
+            <th
+              className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: "12%" }}
+            >
+              Open
+            </th>
+          </tr>
+        </thead>
+        <tbody className="[&_tr:last-child]:border-0">
+          {rows.map((row) => {
+            const op = getAddress(row.operator);
+            const statusTitle =
+              row.nodeCount === 0
+                ? "Waiting"
+                : row.activeRegisteredNodeCount > 0
+                  ? "Active"
+                  : "Inactive";
+
+            return (
+              <tr
+                key={op}
+                onClick={() => router.push(`/operator/${op}`)}
+                className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted cursor-pointer"
+              >
+                <td className="p-4 align-middle [&:has([role=checkbox])]:pr-0">
+                  <div className="flex items-center gap-2">
+                    <OperatorIdenticon address={op} />
+                    <OperatorStatusDot
+                      nodeCount={row.nodeCount}
+                      activeRegisteredNodeCount={row.activeRegisteredNodeCount}
+                    />
+                    <span className="text-sm tabular-nums font-mono break-all">
+                      {op}
+                    </span>
+                  </div>
+                </td>
+                <td className="p-4 align-middle [&:has([role=checkbox])]:pr-0">
+                  <span className="text-sm">{statusTitle}</span>
+                </td>
+                <td className="p-4 text-right align-middle [&:has([role=checkbox])]:pr-0">
+                  <span className="text-sm tabular-nums font-mono">
+                    {row.nodeCount}
+                  </span>
+                </td>
+                <td className="p-4 text-right align-middle [&:has([role=checkbox])]:pr-0">
+                  <span className="text-sm tabular-nums font-mono">
+                    {row.activeRegisteredNodeCount}
+                  </span>
+                </td>
+                <td className="p-4 text-right align-middle [&:has([role=checkbox])]:pr-0">
+                  <span className="text-sm tabular-nums font-mono">
+                    {row.teeCapableNodeCount}
+                  </span>
+                </td>
+                <td className="p-4 text-right align-middle [&:has([role=checkbox])]:pr-0">
+                  <span className="text-xs text-muted-foreground">→</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

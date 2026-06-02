@@ -2,15 +2,6 @@
 
 import type { MouseEvent } from "react";
 
-import { Box, HStack, VStack } from "@coinbase/cds-web/layout";
-import { Link, Text } from "@coinbase/cds-web/typography";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "@coinbase/cds-web/tables";
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
 import { getAddress, type Hex } from "viem";
@@ -34,12 +25,9 @@ function NodeIdenticon({ nodeId }: { nodeId: Hex }) {
   const h = hueFromHex(nodeId);
   const h2 = (h + 47) % 360;
   return (
-    <Box
-      flexShrink={0}
-      width={10}
-      height={10}
+    <div
+      className="flex-shrink-0 w-[10px] h-[10px] rounded-lg"
       style={{
-        borderRadius: 8,
         background: `linear-gradient(135deg, hsl(${h}, 62%, 42%), hsl(${h2}, 58%, 32%))`,
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.12)",
       }}
@@ -71,15 +59,10 @@ function StatusDot({
     }
   }
   return (
-    <Box
+    <div
+      className="flex-shrink-0 w-[6px] h-[6px] rounded-full"
+      style={{ backgroundColor: color }}
       title={title}
-      width={6}
-      height={6}
-      style={{
-        borderRadius: 9999,
-        backgroundColor: color,
-        flexShrink: 0,
-      }}
     />
   );
 }
@@ -106,162 +89,136 @@ export function NodeDirectoryTable({
   const opCol = showOperatorColumn;
 
   return (
-    <Table
-      bordered
-      compact
-      tableLayout="fixed"
-      maxHeight="min(70vh, 720px)"
-      style={{ width: "100%" }}
-    >
-      <TableHeader sticky>
-        <TableRow>
-          <TableCell
-            as="th"
-            scope="col"
-            title="Node"
-            width={opCol ? "26%" : "32%"}
-          />
-          {opCol ? (
-            <TableCell
-              as="th"
-              scope="col"
-              title="Operator"
-              width="18%"
-            />
-          ) : null}
-          <TableCell
-            as="th"
-            scope="col"
-            title="Status"
-            width={opCol ? "12%" : "14%"}
-          />
-          <TableCell
-            as="th"
-            scope="col"
-            title="Fee"
-            justifyContent="flex-end"
-            width={opCol ? "10%" : "12%"}
-          />
-          <TableCell
-            as="th"
-            scope="col"
-            title="Payout"
-            justifyContent="flex-end"
-            width={opCol ? "14%" : "18%"}
-          />
-          <TableCell
-            as="th"
-            scope="col"
-            title="TEE / BE"
-            justifyContent="flex-end"
-            width={opCol ? "12%" : "14%"}
-          />
-          <TableCell
-            as="th"
-            scope="col"
-            title="Open"
-            justifyContent="flex-end"
-            width={opCol ? "8%" : "10%"}
-          />
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map((row) => {
-          const { nodeId, info, operator } = row;
-          const nodeIdString = row.nodeIdString ?? null;
-          const displayNodeLabel =
-            nodeIdString ??
-            (peerIdOnlyDisplay ? "—" : shortNodeId(nodeId));
-          const rowHref = nodeListDetailHref(row);
-          const registered =
-            info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
-          const op = getAddress(operator);
-          const feeLabel = registered
-            ? `${(info.feeBps / 100).toFixed(2)}%`
-            : "—";
-          const payoutLabel = registered
-            ? shortAddress(info.payout)
-            : "—";
-          const statusTitle = !registered
-            ? "Waiting"
-            : info.lifecycle === NodeLifecycle.Defunct
-              ? "Defunct"
-              : info.lifecycle === NodeLifecycle.Chilled
-                ? "Chilled"
-                : info.active
-                  ? "Active"
-                  : "Inactive";
-          const capsLabel = `${info.supportsTEE ? "TEE" : "—"} · ${
-            info.supportsBestEffort ? "BE" : "—"
-          }`;
-
-          return (
-            <TableRow
-              key={nodeId}
-              onClick={() => router.push(rowHref)}
-              style={{ cursor: "pointer" }}
+    <div className="relative w-full overflow-auto rounded-lg border">
+      <table className="w-full caption-bottom text-sm">
+        <thead className="[&_tr]:border-b sticky top-0 bg-background">
+          <tr>
+            <th
+              className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: opCol ? "26%" : "32%" }}
             >
-              <TableCell>
-                <HStack gap={2} alignItems="center">
-                  <NodeIdenticon nodeId={nodeId} />
-                  <StatusDot
-                    registered={registered}
-                    active={info.active}
-                    lifecycle={registered ? info.lifecycle : null}
-                  />
-                  <VStack gap={0} alignItems="flex-start">
-                    <Text
-                      font="body"
-                      mono
-                      tabularNumbers
-                      style={{ wordBreak: "break-all" }}
-                    >
+              Node
+            </th>
+            {opCol ? (
+              <th
+                className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+                style={{ width: "18%" }}
+              >
+                Operator
+              </th>
+            ) : null}
+            <th
+              className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: opCol ? "12%" : "14%" }}
+            >
+              Status
+            </th>
+            <th
+              className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: opCol ? "10%" : "12%" }}
+            >
+              Fee
+            </th>
+            <th
+              className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: opCol ? "14%" : "18%" }}
+            >
+              Payout
+            </th>
+            <th
+              className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: opCol ? "12%" : "14%" }}
+            >
+              TEE / BE
+            </th>
+            <th
+              className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+              style={{ width: opCol ? "8%" : "10%" }}
+            >
+              Open
+            </th>
+          </tr>
+        </thead>
+        <tbody className="[&_tr:last-child]:border-0">
+          {rows.map((row) => {
+            const { nodeId, info, operator } = row;
+            const nodeIdString = row.nodeIdString ?? null;
+            const displayNodeLabel =
+              nodeIdString ??
+              (peerIdOnlyDisplay ? "—" : shortNodeId(nodeId));
+            const rowHref = nodeListDetailHref(row);
+            const registered =
+              info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
+            const op = getAddress(operator);
+            const feeLabel = registered
+              ? `${(info.feeBps / 100).toFixed(2)}%`
+              : "—";
+            const payoutLabel = registered
+              ? shortAddress(info.payout)
+              : "—";
+            const statusTitle = !registered
+              ? "Waiting"
+              : info.lifecycle === NodeLifecycle.Defunct
+                ? "Defunct"
+                : info.lifecycle === NodeLifecycle.Chilled
+                  ? "Chilled"
+                  : info.active
+                    ? "Active"
+                    : "Inactive";
+            const capsLabel = `${info.supportsTEE ? "TEE" : "—"} · ${
+              info.supportsBestEffort ? "BE" : "—"
+            }`;
+
+            return (
+              <tr
+                key={nodeId}
+                onClick={() => router.push(rowHref)}
+                className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted cursor-pointer"
+              >
+                <td className="p-4 align-middle [&:has([role=checkbox])]:pr-0">
+                  <div className="flex items-center gap-2">
+                    <NodeIdenticon nodeId={nodeId} />
+                    <StatusDot
+                      registered={registered}
+                      active={info.active}
+                      lifecycle={registered ? info.lifecycle : null}
+                    />
+                    <span className="text-sm tabular-nums font-mono break-all">
                       {displayNodeLabel}
-                    </Text>
-                  </VStack>
-                </HStack>
-              </TableCell>
-              {showOperatorColumn ? (
-                <TableCell>
-                  <Link
-                    as={NextLink}
-                    href={`/operator/${op}/node`}
-                    font="body"
-                    mono
-                    underline
-                    onClick={(e: MouseEvent) => e.stopPropagation()}
-                  >
-                    {shortAddress(op)}
-                  </Link>
-                </TableCell>
-              ) : null}
-              <TableCell>
-                <Text font="body">{statusTitle}</Text>
-              </TableCell>
-              <TableCell justifyContent="flex-end">
-                <Text font="body" mono tabularNumbers>
-                  {feeLabel}
-                </Text>
-              </TableCell>
-              <TableCell justifyContent="flex-end">
-                <Text font="body" mono tabularNumbers>
-                  {payoutLabel}
-                </Text>
-              </TableCell>
-              <TableCell justifyContent="flex-end">
-                <Text font="caption" color="fgMuted" mono tabularNumbers>
-                  {capsLabel}
-                </Text>
-              </TableCell>
-              <TableCell justifyContent="flex-end">
-                <Text font="label2" color="fgMuted">
-                  →
-                </Text>
-              </TableCell>
-            </TableRow>
-          );
-        })}
-      </TableBody>
-    </Table>
+                    </span>
+                  </div>
+                </td>
+                {showOperatorColumn ? (
+                  <td className="p-4 align-middle [&:has([role=checkbox])]:pr-0">
+                    <NextLink
+                      href={`/operator/${op}/node`}
+                      className="text-sm tabular-nums font-mono underline underline-offset-4 hover:text-accent transition-colors"
+                      onClick={(e: MouseEvent) => e.stopPropagation()}
+                    >
+                      {shortAddress(op)}
+                    </NextLink>
+                  </td>
+                ) : null}
+                <td className="p-4 align-middle [&:has([role=checkbox])]:pr-0">
+                  <span className="text-sm">{statusTitle}</span>
+                </td>
+                <td className="p-4 text-right align-middle [&:has([role=checkbox])]:pr-0">
+                  <span className="text-sm tabular-nums font-mono">{feeLabel}</span>
+                </td>
+                <td className="p-4 text-right align-middle [&:has([role=checkbox])]:pr-0">
+                  <span className="text-sm tabular-nums font-mono">{payoutLabel}</span>
+                </td>
+                <td className="p-4 text-right align-middle [&:has([role=checkbox])]:pr-0">
+                  <span className="text-xs tabular-nums font-mono text-muted-foreground">{capsLabel}</span>
+                </td>
+                <td className="p-4 text-right align-middle [&:has([role=checkbox])]:pr-0">
+                  <span className="text-xs text-muted-foreground">→</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

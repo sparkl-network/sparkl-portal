@@ -1,17 +1,18 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
 import {
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-} from "@coinbase/cds-web/overlays";
-import { Banner } from "@coinbase/cds-web/banner";
-import { Button } from "@coinbase/cds-web/buttons";
-import { TextInput } from "@coinbase/cds-web/controls";
-import { VStack } from "@coinbase/cds-web/layout";
-import { SegmentedTabs } from "@coinbase/cds-web/tabs";
-import { Text } from "@coinbase/cds-web/typography";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { formatUnits, isHex, parseUnits, size } from "viem";
@@ -38,7 +39,7 @@ import { SecurityTier, type EscrowSession } from "@/lib/types";
 import { ApiKeyRevealModal } from "./ApiKeyRevealModal";
 
 type Props = {
-  visible: boolean;
+  open: boolean;
   onClose: () => void;
   sessionId: bigint;
   session: EscrowSession;
@@ -98,7 +99,7 @@ function MigrateSessionForm({
   publicClient,
   dotBalance,
   onComplete,
-}: Omit<Props, "visible">) {
+}: Omit<Props, "open">) {
   const suggested = useMemo(() => suggestSettleSplit(session), [session]);
 
   const [step, setStep] = useState<Step>("close");
@@ -111,7 +112,7 @@ function MigrateSessionForm({
     fieldFromWei(suggested.toUser),
   );
 
-  const [nodeIdInput, setNodeIdInput] = useState(session.nodeId);
+  const [nodeIdInput, setNodeIdInput] = useState(session.nodeId as `0x${string}`);
   const [tierTab, setTierTab] = useState<(typeof TIER_TABS)[number]>(() =>
     session.tier === SecurityTier.TEE_VERIFIED ? TIER_TABS[1] : TIER_TABS[0],
   );
@@ -267,122 +268,131 @@ function MigrateSessionForm({
 
   return (
     <>
-      <Modal visible={!apiKey} onClose={onClose} accessibilityLabel="Migrate session">
-        <ModalHeader title="Migrate session" />
-        <ModalBody paddingX={3} paddingY={2}>
-          <VStack gap={2}>
-            <Text font="label2">{stepTitle}</Text>
-            <Banner variant="warning" startIcon="warning" showDismiss={false} title="Compromised key">
-              <Text font="caption" color="fgMuted">
-                This flow settles session {sessionId.toString()} and creates a
-                new session id with a new API key. Do not use “Show API key again”
-                on the old session.
-              </Text>
-            </Banner>
+      <Dialog open={!apiKey} onOpenChange={(o) => { if (!o) onClose(); }}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Migrate session</DialogTitle>
+          </DialogHeader>
+          <DialogDescription className="flex flex-col gap-3">
+            <span className="text-sm font-medium">{stepTitle}</span>
 
-            {step === "close" ? (
-              <>
-                <TextInput
-                  label="Pay provider (internal DOT)"
+            <Alert variant="warning">
+              <AlertTitle>Compromised key</AlertTitle>
+              <AlertDescription className="text-xs text-muted-foreground">
+                This flow settles session {sessionId.toString()} and creates a
+                new session id with a new API key. Do not use "Show API key again"
+                on the old session.
+              </AlertDescription>
+            </Alert>
+
+            <Tabs value={step} onValueChange={(v) => setStep(v as Step)}>
+              {/* Close step */}
+              <div className="space-y-2">
+                <Label>Pay provider (internal DOT)</Label>
+                <Input
                   value={toProviderInput}
                   onChange={(e) => setToProviderInput(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || step !== "close"}
                 />
-                <TextInput
-                  label="Refund user (internal DOT)"
+                <Label>Refund user (internal DOT)</Label>
+                <Input
                   value={toUserInput}
                   onChange={(e) => setToUserInput(e.target.value)}
-                  disabled={busy}
+                  disabled={busy || step !== "close"}
                 />
-              </>
-            ) : null}
+              </div>
 
-            {step === "open" ? (
-              <>
-                <TextInput
-                  label="Node id (bytes32 hex)"
-                  value={nodeIdInput}
-                  onChange={(e) => setNodeIdInput(e.target.value)}
-                  disabled={busy}
-                  mono
-                />
-                <Text font="caption" color="fgMuted">
-                  Model
-                </Text>
-                <select
-                  value={modelName}
-                  onChange={(e) => setModelNameOverride(e.target.value)}
-                  disabled={busy || models.length === 0}
-                  style={{ width: "100%", padding: "8px" }}
-                >
-                  {models.map((m) => (
-                    <option key={m.modelId} value={m.name}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-                <SegmentedTabs
-                  tabs={TIER_TABS}
-                  activeTab={tierTab}
-                  onChange={setTierTab}
-                />
-                <SegmentedTabs
-                  tabs={MODE_TABS}
-                  activeTab={modeTab}
-                  onChange={setModeTab}
-                />
-                <TextInput
-                  label="Lock amount (internal DOT)"
-                  value={lockAmount}
-                  onChange={(e) => setLockAmount(e.target.value)}
-                  disabled={busy}
-                />
-                <Text font="caption" color="fgMuted">
-                  Internal balance: {fieldFromWei(dotBalance)}
-                </Text>
-              </>
-            ) : null}
+              {/* Open step */}
+              {step === "open" && (
+                <>
+                  <div className="space-y-1">
+                    <Label>Node id (bytes32 hex)</Label>
+                    <Input
+                      value={nodeIdInput}
+                      onChange={(e) => setNodeIdInput(e.target.value as `0x${string}`)}
+                      disabled={busy}
+                      className="font-mono"
+                    />
+                  </div>
 
-            {step === "activate" ? (
-              <Text font="body" color="fgMuted">
-                New session {newSessionId?.toString() ?? "—"}. Sign the activate
-                message in your wallet to fetch a new API key from the router.
-              </Text>
-            ) : null}
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Model</label>
+                    <select
+                      value={modelName}
+                      onChange={(e) => setModelNameOverride(e.target.value)}
+                      disabled={busy || models.length === 0}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      {models.map((m) => (
+                        <option key={m.modelId} value={m.name}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-            {error ? (
-              <Banner variant="error" startIcon="warning" showDismiss={false} title="Error">
-                <Text font="body">{error}</Text>
-              </Banner>
-            ) : null}
-          </VStack>
-        </ModalBody>
-        <ModalFooter
-          primaryAction={
-            step === "close" ? (
-              <Button onClick={runClose} loading={busy}>
-                Settle old session
-              </Button>
+                  <Tabs value={tierTab.id} onValueChange={(v) => setTierTab(TIER_TABS.find(t => t.id === v) || TIER_TABS[0])}>
+                    <TabsList className="w-full">
+                      {TIER_TABS.map((tab) => (
+                        <TabsTrigger key={tab.id} value={tab.id} className="flex-1">{tab.label}</TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+
+                  <Tabs value={modeTab.id} onValueChange={(v) => setModeTab(MODE_TABS.find(t => t.id === v) || MODE_TABS[0])}>
+                    <TabsList className="w-full">
+                      {MODE_TABS.map((tab) => (
+                        <TabsTrigger key={tab.id} value={tab.id} className="flex-1">{tab.label}</TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+
+                  <div className="space-y-1">
+                    <Label>Lock amount (internal DOT)</Label>
+                    <Input
+                      value={lockAmount}
+                      onChange={(e) => setLockAmount(e.target.value)}
+                      disabled={busy}
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Internal balance: {fieldFromWei(dotBalance)}
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {/* Activate step */}
+              {step === "activate" && (
+                <p className="text-sm text-muted-foreground">
+                  New session {newSessionId?.toString() ?? "—"}. Sign the activate
+                  message in your wallet to fetch a new API key from the router.
+                </p>
+              )}
+
+              {/* Error banner */}
+              {error && (
+                <Alert variant="destructive">
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+            </Tabs>
+          </DialogDescription>
+          <DialogFooter className="gap-2 sm:gap-0 sm:flex-row flex flex-col">
+            {step === "close" ? (
+              <Button onClick={runClose}>{busy ? "Settling..." : "Settle old session"}</Button>
             ) : step === "open" ? (
-              <Button onClick={runOpen} loading={busy}>
-                Open new session
-              </Button>
+              <Button onClick={runOpen}>{busy ? "Opening..." : "Open new session"}</Button>
             ) : (
-              <Button onClick={runActivate} loading={busy}>
-                Activate and show key
-              </Button>
-            )
-          }
-          secondaryAction={
-            <Button variant="secondary" onClick={onClose} disabled={busy}>
-              Cancel
-            </Button>
-          }
-        />
-      </Modal>
+              <Button onClick={runActivate}>{busy ? "Activating..." : "Activate and show key"}</Button>
+            )}
+            <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ApiKeyRevealModal
-        visible={Boolean(apiKey)}
+        open={Boolean(apiKey)}
         onClose={() => {
           setApiKey(null);
           onClose();
@@ -396,8 +406,8 @@ function MigrateSessionForm({
   );
 }
 
-export function MigrateSessionModal({ visible, sessionId, ...props }: Props) {
-  if (!visible) return null;
+export function MigrateSessionModal({ open, sessionId, ...props }: Props) {
+  if (!open) return null;
   return (
     <MigrateSessionForm key={sessionId.toString()} sessionId={sessionId} {...props} />
   );

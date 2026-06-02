@@ -1,19 +1,19 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-} from "@coinbase/cds-web/overlays";
-import { Button } from "@coinbase/cds-web/buttons";
-import { TextInput } from "@coinbase/cds-web/controls";
-import { VStack } from "@coinbase/cds-web/layout";
-import { Text } from "@coinbase/cds-web/typography";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useState } from "react";
 
 type Props = {
-  visible: boolean;
+  open: boolean;
   onClose: () => void;
   apiKey: string;
   sessionId: string;
@@ -22,7 +22,7 @@ type Props = {
 };
 
 export function ApiKeyRevealModal({
-  visible,
+  open,
   onClose,
   apiKey,
   sessionId,
@@ -32,22 +32,20 @@ export function ApiKeyRevealModal({
   const [copied, setCopied] = useState(false);
 
   return (
-    <Modal visible={visible} onClose={onClose} accessibilityLabel={title}>
-      <ModalHeader title={title} />
-      <ModalBody paddingX={3} paddingY={2}>
-        <VStack gap={2}>
-          <Text font="body">{description}</Text>
-          <Text font="caption" color="fgMuted">
-            Session {sessionId}
-          </Text>
-          <TextInput value={apiKey} readOnly />
-          <Text font="caption" color="fgMuted">
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <DialogDescription className="flex flex-col gap-1">
+          <p>{description}</p>
+          <span className="text-xs text-muted-foreground">Session {sessionId}</span>
+          <Input value={apiKey} readOnly className="font-mono" />
+          <span className="text-xs text-muted-foreground">
             Use as OpenAI SDK apiKey with base URL set to your Sparkl router URL.
-          </Text>
-        </VStack>
-      </ModalBody>
-      <ModalFooter
-        primaryAction={
+          </span>
+        </DialogDescription>
+        <DialogFooter>
           <Button
             onClick={async () => {
               try {
@@ -60,13 +58,11 @@ export function ApiKeyRevealModal({
           >
             {copied ? "Copied" : "Copy key"}
           </Button>
-        }
-        secondaryAction={
           <Button variant="secondary" onClick={onClose}>
             Done
           </Button>
-        }
-      />
-    </Modal>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
