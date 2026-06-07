@@ -99,7 +99,7 @@ export function parseNodeIdInput(raw: string): NodeId | null {
   return nodeIdFromLibp2pPeerIdString(s);
 }
 
-/** Value for the registration peer-id field after probe (libp2p `12D3Koo…`). */
+/** Value for the registration peer-id field from identity (libp2p `12D3Koo…`). */
 export function identityInputFromProbe(params: {
   canonicalNodeId: Hex;
   identityPeerId: string | null;

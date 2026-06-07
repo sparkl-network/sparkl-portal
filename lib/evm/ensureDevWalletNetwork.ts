@@ -1,16 +1,12 @@
+import type { Connector } from "wagmi";
+
 import {
   type HubChainConfig,
   chainRpcUrl,
   isPublicHttpsChainRpc,
 } from "@/lib/chains";
+import { getConnectedInjectedProvider } from "@/lib/evm/injectedProvider";
 import { isHttpLanPageRpc, walletAddEthereumChainRpcUrl } from "@/lib/evm/metamaskRpcUrl";
-
-type EthereumProvider = {
-  request: (args: {
-    method: string;
-    params?: unknown[];
-  }) => Promise<unknown>;
-};
 
 /**
  * Register/switch MetaMask to the hub chain using the **chain node RPC** (`NEXT_PUBLIC_RPC_URL_*`),
@@ -18,13 +14,14 @@ type EthereumProvider = {
  */
 export async function ensureDevWalletNetwork(
   hubConfig: HubChainConfig,
+  connector?: Connector,
 ): Promise<string | undefined> {
   if (typeof window === "undefined") {
     throw new Error("Wallet network setup must run in the browser");
   }
-  const eth = (window as Window & { ethereum?: EthereumProvider }).ethereum;
+  const eth = await getConnectedInjectedProvider(connector);
   if (!eth?.request) {
-    throw new Error("No injected wallet (e.g. MetaMask) found");
+    throw new Error("No injected provider for the connected wallet");
   }
 
   const chainRpc = chainRpcUrl(hubConfig);

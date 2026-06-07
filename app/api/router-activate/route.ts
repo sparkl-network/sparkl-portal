@@ -2,6 +2,22 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+/** sparkl-router `ActivateBody.block_number` is JSON u64 (number), not a string. */
+function parseBlockNumberU64(raw: unknown): number | null {
+  if (typeof raw === "number") {
+    if (!Number.isInteger(raw) || raw < 0) return null;
+    return raw;
+  }
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    if (!/^\d+$/.test(t)) return null;
+    const n = Number(t);
+    if (!Number.isSafeInteger(n) || n < 0) return null;
+    return n;
+  }
+  return null;
+}
+
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_PER_WINDOW = 30;
 const hits = new Map<string, { count: number; resetAt: number }>();
@@ -63,14 +79,14 @@ export async function POST(req: Request) {
       ? (body as { signature: string }).signature.trim()
       : "";
 
-  const blockNumber =
+  const blockNumberRaw =
     typeof body === "object" &&
     body !== null &&
-    "blockNumber" in body &&
-    (typeof (body as { blockNumber: unknown }).blockNumber === "string" ||
-      typeof (body as { blockNumber: unknown }).blockNumber === "number")
-      ? String((body as { blockNumber: string | number }).blockNumber)
-      : "";
+    "blockNumber" in body
+      ? (body as { blockNumber: unknown }).blockNumber
+      : undefined;
+
+  const blockNumber = parseBlockNumberU64(blockNumberRaw);
 
   const message =
     typeof body === "object" &&
@@ -80,7 +96,7 @@ export async function POST(req: Request) {
       ? (body as { message: string }).message
       : undefined;
 
-  if (!sessionId || !signature || !blockNumber) {
+  if (!sessionId || !signature || blockNumber === null) {
     return NextResponse.json(
       { error: "sessionId, signature, and blockNumber are required" },
       { status: 400 },
@@ -99,6 +115,10 @@ export async function POST(req: Request) {
         signature,
         blockNumber,
         ...(message ? { message } : {}),
+      } satisfies {
+        signature: string;
+        blockNumber: number;
+        message?: string;
       }),
     });
   } catch (e) {

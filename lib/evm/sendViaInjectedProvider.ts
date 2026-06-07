@@ -1,11 +1,10 @@
 import type { Address, Hex } from "viem";
+import type { Connector } from "wagmi";
 
-type EthereumProvider = {
-  request: (args: {
-    method: string;
-    params?: unknown[];
-  }) => Promise<unknown>;
-};
+import {
+  type EthereumProvider,
+  getConnectedInjectedProvider,
+} from "@/lib/evm/injectedProvider";
 
 function toQuantity(value: bigint): Hex {
   return `0x${value.toString(16)}` as Hex;
@@ -15,22 +14,25 @@ function toQuantity(value: bigint): Hex {
  * Minimal `eth_sendTransaction` via `window.ethereum` (hex quantities only).
  * Used when viem's wallet transport surfaces MetaMask internal JSON-RPC errors.
  */
-export async function sendViaInjectedProvider(tx: {
-  from: Address;
-  to: Address;
-  data: Hex;
-  value?: bigint;
-  gas?: bigint;
-  maxFeePerGas?: bigint;
-  maxPriorityFeePerGas?: bigint;
-  gasPrice?: bigint;
-}): Promise<Hex> {
+export async function sendViaInjectedProvider(
+  tx: {
+    from: Address;
+    to: Address;
+    data: Hex;
+    value?: bigint;
+    gas?: bigint;
+    maxFeePerGas?: bigint;
+    maxPriorityFeePerGas?: bigint;
+    gasPrice?: bigint;
+  },
+  connector?: Connector,
+): Promise<Hex> {
   if (typeof window === "undefined") {
     throw new Error("Injected provider send must run in the browser");
   }
-  const eth = (window as Window & { ethereum?: EthereumProvider }).ethereum;
+  const eth = await getConnectedInjectedProvider(connector);
   if (!eth?.request) {
-    throw new Error("No injected wallet (e.g. MetaMask) found");
+    throw new Error("No injected provider for the connected wallet");
   }
 
   const param: Record<string, string> = {

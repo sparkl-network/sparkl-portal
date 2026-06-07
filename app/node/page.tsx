@@ -7,6 +7,13 @@ import { useQuery } from "@tanstack/react-query";
 import { getAddress } from "viem";
 
 import { NodeDirectoryTable } from "@/components/nodes/NodeDirectoryTable";
+import { buildModelCountByNodeId } from "@/lib/router/merge";
+import { normalizeNodeId } from "@/lib/router/normalizeNodeId";
+import {
+  useRouterCatalogProviders,
+  useRouterNodesStatus,
+} from "@/lib/router/useRouterData";
+import { routerBaseUrl } from "@/lib/router/activate";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,17 +26,14 @@ import {
 import { shortAddress } from "@/lib/formatAddress";
 import {
   enrichRegisteredNodesWithPeerId,
+  mergeRouterMoniker,
   type RegisteredNodeListRow,
 } from "@/lib/nodeListRow";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
-import {
-  useAccount,
-  useChainId,
-  usePublicClient,
-  useWalletClient,
-} from "wagmi";
+import { usePortalPublicClient } from "@/lib/usePortalPublicClient";
+import { useAccount, useChainId, useWalletClient } from "wagmi";
 
-type NodeFilter = "all" | "active" | "waiting" | "mine";
+type NodeFilter = "all" | "active" | "waiting" | "mine" | "tunnel_online";
 
 function StatBlock({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -67,9 +71,12 @@ function rowMatchesSearch(r: RegisteredNodeListRow, q: string): boolean {
   const raw = q.trim();
   const s = raw.toLowerCase();
   const op = getAddress(r.operator).toLowerCase();
-  const peer = r.nodeIdString ?? "";
+  const moniker = (r.moniker ?? "").toLowerCase();
+  const peer = (r.nodeIdString ?? "").toLowerCase();
   return (
-    (peer.length > 0 && peer.includes(raw)) ||
+    r.nodeId.toLowerCase().includes(s) ||
+    moniker.includes(s) ||
+    peer.includes(s) ||
     op.includes(s) ||
     r.info.payout.toLowerCase().includes(s) ||
     shortAddress(op).toLowerCase().includes(s)
@@ -83,9 +90,7 @@ export default function AllNodesPage() {
   void walletClient;
   const { hubConfig, configError } = useHubChainConfig();
 
-  const publicClient = usePublicClient({
-    chainId: hubConfig?.chainId,
-  });
+  const publicClient = usePortalPublicClient();
 
   const registryUnset = Boolean(
     !hubConfig ||
@@ -103,6 +108,20 @@ export default function AllNodesPage() {
 
   const listReady = Boolean(
     hubConfig && publicClient && !registryUnset && !configError,
+  );
+
+  const routerConfigured = Boolean(routerBaseUrl());
+  const {
+    data: routerStatusList,
+    statusByNodeId,
+    isError: routerStatusError,
+    unavailable: routerUnavailable,
+  } = useRouterNodesStatus();
+  const { data: catalogProviders } = useRouterCatalogProviders();
+
+  const modelCountByNodeId = useMemo(
+    () => buildModelCountByNodeId(catalogProviders?.data ?? []),
+    [catalogProviders],
   );
 
   const [filter, setFilter] = useState<NodeFilter>("all");
@@ -153,15 +172,27 @@ export default function AllNodesPage() {
     const avgFeeBps = registered > 0 ? feeSum / registered : 0;
     const activeOfRegPct = registered > 0 ? (active / registered) * 100 : 0;
     const registeredPct = total > 0 ? (registered / total) * 100 : 0;
+    let routerOnline = 0;
+    for (const r of rows) {
+      const key = normalizeNodeId(r.nodeId);
+      if (key && statusByNodeId.get(key)?.status === "online") routerOnline += 1;
+    }
     return {
       total, registered, active, waiting, operatorCount: operators.size,
       avgFeeBps, activeOfRegPct, registeredPct,
+      tunnelCount: routerStatusList?.tunnel_count ?? 0,
+      routerOnline,
     };
-  }, [rows]);
+  }, [rows, statusByNodeId, routerStatusList]);
+
+  const rowsWithMoniker = useMemo(
+    () => mergeRouterMoniker(rows, statusByNodeId),
+    [rows, statusByNodeId],
+  );
 
   const filteredRows = useMemo(() => {
     const addrLower = address?.toLowerCase();
-    return rows.filter((r) => {
+    return rowsWithMoniker.filter((r) => {
       if (!rowMatchesSearch(r, search)) return false;
       const isReg = r.info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
       const op = getAddress(r.operator).toLowerCase();
@@ -171,9 +202,13 @@ export default function AllNodesPage() {
         if (!addrLower) return false;
         return op === addrLower;
       }
+      if (filter === "tunnel_online") {
+        const key = normalizeNodeId(r.nodeId);
+        return Boolean(key && statusByNodeId.get(key)?.status === "online");
+      }
       return true;
     });
-  }, [rows, filter, search, address]);
+  }, [rowsWithMoniker, filter, search, address, statusByNodeId]);
 
   const listErrMsg = listError instanceof Error ? listError.message : "Could not load nodes";
 
@@ -182,6 +217,7 @@ export default function AllNodesPage() {
     { id: "active", label: "Active" },
     { id: "waiting", label: "Waiting" },
     { id: "mine", label: "My nodes" },
+    ...(routerConfigured ? [{ id: "tunnel_online" as const, label: "Tunnel online" }] : []),
   ];
 
   return (
@@ -234,6 +270,24 @@ export default function AllNodesPage() {
         </Alert>
       )}
 
+      {routerConfigured && routerUnavailable && (
+        <Alert variant="warning" className="mb-4">
+          <AlertTitle>Router status unavailable</AlertTitle>
+          <AlertDescription>
+            Set <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">SPARKL_ROUTER_URL</code> and{" "}
+            <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">SPARKL_ROUTER_ADMIN_TOKEN</code> on the portal server (must match router{" "}
+            <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">[portal].admin_token</code>). Tunnel columns need both.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {routerConfigured && routerStatusError && !routerUnavailable && (
+        <Alert variant="warning" className="mb-4">
+          <AlertTitle>Router status read failed</AlertTitle>
+          <AlertDescription>Tunnel column may be stale. Is sparkl-router running?</AlertDescription>
+        </Alert>
+      )}
+
       {/* Stats */}
       {listReady && !listError && !listLoading && rows.length > 0 && (
         <div className="rounded-xl border bg-card text-card-foreground shadow-sm p-3 mb-4">
@@ -243,6 +297,13 @@ export default function AllNodesPage() {
               <StatBlock label="Waiting" value={`${stats.waiting}`} sub="No payout set" />
               <StatBlock label="Operators" value={`${stats.operatorCount}`} sub="Unique addresses" />
               <StatBlock label="Avg fee" value={`${(stats.avgFeeBps / 100).toFixed(2)}%`} sub="Registered nodes" />
+              {routerConfigured && (
+                <StatBlock
+                  label="Router tunnels"
+                  value={`${stats.routerOnline} / ${stats.tunnelCount}`}
+                  sub="Online / connected"
+                />
+              )}
             </div>
             <div className="flex gap-8 flex-wrap">
               <DonutStat label="Active (of registered)" pct={stats.activeOfRegPct} sublabel={`${stats.active} active`} />
@@ -285,11 +346,17 @@ export default function AllNodesPage() {
                 <div className="w-[5px] h-[5px] rounded-full bg-gray-400" />
                 Waiting
               </div>
+              {routerConfigured && (
+                <div className="flex gap-1 items-center">
+                  <div className="w-[5px] h-[5px] rounded-full bg-emerald-600" />
+                  Tunnel online (router)
+                </div>
+              )}
               <span>→ Open node</span>
             </div>
           </div>
           <Input
-            placeholder="Filter by peer id (node id string), operator, or payout"
+            placeholder="Filter by moniker, node id, peer id, operator, or payout"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -318,11 +385,18 @@ export default function AllNodesPage() {
       {/* Table */}
       {listReady && !listLoading && !listError && rows.length > 0 && (
         <>
-          <p className="text-xs text-muted-foreground mb-2">Showing {filteredRows.length} of {rows.length} nodes</p>
+          <p className="text-xs text-muted-foreground mb-2">Showing {filteredRows.length} of {rowsWithMoniker.length} nodes</p>
           {filteredRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">No nodes match this filter or search.</p>
           ) : (
-            <NodeDirectoryTable rows={filteredRows} showOperatorColumn peerIdOnlyDisplay />
+            <NodeDirectoryTable
+              rows={filteredRows}
+              showOperatorColumn
+              peerIdOnlyDisplay
+              routerConfigured={routerConfigured && !routerUnavailable}
+              statusByNodeId={statusByNodeId}
+              modelCountByNodeId={modelCountByNodeId}
+            />
           )}
         </>
       )}

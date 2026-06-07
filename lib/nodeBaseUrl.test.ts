@@ -26,6 +26,30 @@ describe("parseMetadataUri / metadataUriToBaseUrl", () => {
     expect(metadataUriToBaseUrl(raw)).toBe("https://node.example:8787");
   });
 
+  it("parses JSON with moniker", () => {
+    const raw = JSON.stringify({
+      version: 1,
+      moniker: "my-gpu-box",
+      peer_id: "12D3KooWExample",
+      node_id: "0xab",
+    });
+    const p = parseMetadataUri(raw);
+    expect(p?.moniker).toBe("my-gpu-box");
+    expect(p?.peerId).toBe("12D3KooWExample");
+  });
+
+  it("parses JSON with peer_id only (no baseUrl)", () => {
+    const raw = JSON.stringify({
+      version: 1,
+      peer_id: "12D3KooWExamplePeerIdForTestOnly",
+    });
+    const p = parseMetadataUri(raw);
+    expect(p?.baseUrl).toBeUndefined();
+    expect(p?.peerId).toBe("12D3KooWExamplePeerIdForTestOnly");
+    expect(metadataUriToBaseUrl(raw)).toBeNull();
+    expect(registryMetadataUriToFetchUrl(raw)).toBeNull();
+  });
+
   it("registry fetch URL adds /details for bare origin", () => {
     expect(registryMetadataUriToFetchUrl("https://h:1")).toBe(
       "https://h:1/details",

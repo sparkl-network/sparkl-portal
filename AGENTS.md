@@ -10,7 +10,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 **Repository:** [github.com/sparkl-network/sparkl-portal](https://github.com/sparkl-network/sparkl-portal)
 
-Next.js **Hub EVM portal** for node operators, operator directory, and consumers. Reads/writes **`ProviderRegistry`** and **`SettlementEscrow`** via wagmi/viem. Does not embed the Rust node — it talks to chain RPC and optionally HTTP-probes a solo node.
+Next.js **Hub EVM portal** for node operators, operator directory, and consumers. Reads/writes **`ProviderRegistry`** and **`SettlementEscrow`** via wagmi/viem. Merges **sparkl-router** tunnel status and catalog via same-origin API proxies (`/api/router-status/*`, `/api/router-catalog/*`). Does not embed the Rust node — runtime tunnel is sparkl-solo → router.
 
 ## Ecosystem position
 
@@ -23,8 +23,7 @@ Next.js **Hub EVM portal** for node operators, operator directory, and consumers
 
 ```text
 Browser → sparkl-portal (Next.js)
-            ├─ JSON-RPC → Hub EVM (Anvil / Paseo / production)
-            └─ POST /api/operator-node-probe → operator's sparkl-solo HTTP origin
+            └─ JSON-RPC → Hub EVM (Anvil / Paseo / production)
 sparkl-solo/contracts ──abis:sync──► sparkl-portal/lib/abi/
 ```
 
@@ -75,14 +74,16 @@ If writes fail with **Failed to fetch**, enable same-origin proxy (`NEXT_PUBLIC_
 |------|---------|
 | `/` | Home |
 | `/node`, `/node/register`, `/node/[nodeId]` | Operator nodes |
-| `/node/[nodeId]/sessions` | Dev: escrow session logs |
+| `/node/[nodeId]/session`, `/node/[nodeId]/session/[sessionId]` | Dev: escrow session index + detail |
 | `/operator`, `/operator/[operator]` | Operator directory |
-| `/model` | Network reference model pricing (`ModelPriceOracle`) |
+| `/model` | Network reference model pricing (`ModelPriceOracle`) + router catalog capacity |
+| `/user/session`, `/user/session/[sessionId]` | Consumer sessions (primary) + detail |
+| `/session`, `/session/[sessionId]` | Consumer sessions (short alias) + detail |
 | `/user` | User hub + escrow fund/withdraw (`depositDot()` / `withdrawDot()`) |
 
-Registry **`nodeId`** is **`bytes32`** (from solo `GET /identity`). Registration probe: **`POST /api/operator-node-probe`**.
+Registry **`nodeId`** is **`bytes32`** (from libp2p peer id or pasted hex). **Commercial registration:** portal **`/node/register`** (optional `metadataURI` with `peer_id` / `node_id` only — no moniker on-chain). **Moniker:** sparkl-solo **`[node].moniker`** → router WSS auth → portal **`GET /status/nodes`**.
 
-SDK modules: `lib/chains.ts`, `lib/evm/registry.ts`, `lib/evm/escrow.ts`, `lib/evm/modelOracle.ts`, `lib/nodeId.ts` — see [README.md](./README.md).
+SDK modules: `lib/chains.ts`, `lib/evm/registry.ts`, `lib/evm/escrow.ts`, `lib/evm/modelOracle.ts`, `lib/nodeId.ts`, `lib/router/*` — see [README.md](./README.md). Router env: `NEXT_PUBLIC_SPARKL_ROUTER_URL`, `SPARKL_ROUTER_URL`, `SPARKL_ROUTER_ADMIN_TOKEN`.
 
 ## Tests and quality
 
@@ -122,6 +123,6 @@ Funding semantics: `/user` uses **`SettlementEscrow.depositDot()`**; `NEXT_PUBLI
 ## Related documentation
 
 - **[README.md](./README.md)** — routes, CDS, ABIs, SDK table
-- **[docs/DEVELOPER.md](./docs/DEVELOPER.md)** — Anvil, MetaMask, redeploy workflow, provider probe
+- **[docs/DEVELOPER.md](./docs/DEVELOPER.md)** — Anvil, MetaMask, redeploy workflow, node registration
 - **[sparkl-solo/AGENTS.md](https://github.com/sparkl-network/sparkl-solo/blob/main/AGENTS.md)** — node + contracts
 - **[sparkl-solo/contracts/README.md](https://github.com/sparkl-network/sparkl-solo/blob/main/contracts/README.md)** — deploy output and portal env examples

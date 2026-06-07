@@ -9,6 +9,8 @@ import { type Config, WagmiProvider } from "wagmi";
 
 import { AppToolbar } from "@/components/AppToolbar";
 import { EscrowTrustFooter } from "@/components/EscrowTrustFooter";
+import { PersonalizationProvider } from "@/lib/personalization/PersonalizationProvider";
+import { RouterProvider } from "@/lib/router/RouterProvider";
 import { getHubWagmiConfig } from "@/lib/wagmi";
 
 type WagmiBootstrap =
@@ -49,13 +51,17 @@ export function Providers({ children }: { children: ReactNode }) {
         <WagmiProvider config={wagmi.config}>
           <QueryClientProvider client={queryClient}>
             <RainbowKitProvider>
-              <div className="app-shell">
-                <div className="app-toolbar-sticky">
-                  <AppToolbar />
-                </div>
-                <div className="app-main">{children}</div>
-                <EscrowTrustFooter />
-              </div>
+              <PersonalizationProvider>
+                <RouterProvider>
+                  <div className="app-shell">
+                    <div className="app-toolbar-sticky">
+                      <AppToolbar />
+                    </div>
+                    <div className="app-main">{children}</div>
+                    <EscrowTrustFooter />
+                  </div>
+                </RouterProvider>
+              </PersonalizationProvider>
             </RainbowKitProvider>
           </QueryClientProvider>
         </WagmiProvider>

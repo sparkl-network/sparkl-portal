@@ -1,39 +1,42 @@
 import type { RegisteredNodeWithOperator } from "@/lib/evm/registry";
-import { parseMetadataUri } from "@/lib/nodeBaseUrl";
-import { nodeIdFromLibp2pPeerIdString, parseNodeIdInput } from "@/lib/nodeId";
+import { softwarePeerIdFromMetadataUri } from "@/lib/nodeBaseUrl";
+import { normalizeNodeId } from "@/lib/router/normalizeNodeId";
+import type { NodeStatus } from "@/lib/router/types";
 
 export type RegisteredNodeListRow = RegisteredNodeWithOperator & {
-  nodeIdString: string | null;
+  /** Human-readable label from sparkl-solo via router tunnel status (not on-chain). */
+  moniker?: string | null;
+  /** Libp2p peer id string for display when known (optional on-chain metadataURI). */
+  nodeIdString?: string | null;
 };
 
-/**
- * Attach libp2p peer id strings for display from on-chain registration metadata.
- */
+/** Enrich directory rows with peer id from legacy `metadataURI` JSON. */
 export function enrichRegisteredNodesWithPeerId(
   rows: RegisteredNodeWithOperator[],
 ): RegisteredNodeListRow[] {
-  return rows.map((r) => {
-    const meta = parseMetadataUri(r.info.metadataURI ?? "");
-    const peerId = meta?.peerId?.trim() ?? null;
-    if (peerId) {
-      const hashed = nodeIdFromLibp2pPeerIdString(peerId);
-      if (hashed && hashed.toLowerCase() === r.nodeId.toLowerCase()) {
-        return { ...r, nodeIdString: peerId };
-      }
-      if (meta?.nodeId && meta.nodeId.toLowerCase() === r.nodeId.toLowerCase()) {
-        return { ...r, nodeIdString: peerId };
-      }
-    }
-    return { ...r, nodeIdString: null };
+  return rows.map((row) => {
+    const peerId = softwarePeerIdFromMetadataUri(row.info.metadataURI ?? "");
+    return {
+      ...row,
+      moniker: null,
+      nodeIdString: peerId ?? null,
+    };
   });
 }
 
-export function nodeListDetailHref(
-  row: RegisteredNodeWithOperator & { nodeIdString?: string | null },
-): string {
-  const peer = row.nodeIdString?.trim() ?? null;
-  if (peer && parseNodeIdInput(peer)) {
-    return `/node/${encodeURIComponent(peer)}`;
-  }
+/** Attach live monikers from router `GET /status/nodes` (sparkl-solo `[node].moniker`). */
+export function mergeRouterMoniker(
+  rows: RegisteredNodeListRow[],
+  statusByNodeId: Map<string, NodeStatus>,
+): RegisteredNodeListRow[] {
+  return rows.map((r) => {
+    const key = normalizeNodeId(r.nodeId);
+    const routerMoniker = key ? statusByNodeId.get(key)?.moniker?.trim() : undefined;
+    if (!routerMoniker) return r;
+    return { ...r, moniker: routerMoniker };
+  });
+}
+
+export function nodeListDetailHref(row: RegisteredNodeWithOperator): string {
   return `/node/${encodeURIComponent(row.nodeId)}`;
 }

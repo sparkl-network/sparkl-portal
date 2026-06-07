@@ -22,7 +22,8 @@ export function SessionRecoveryHelpModal({ open, onClose }: Props) {
         <DialogHeader>
           <DialogTitle>Lost vs compromised API keys</DialogTitle>
         </DialogHeader>
-        <DialogDescription className="flex flex-col gap-3">
+        <DialogDescription asChild>
+          <div className="flex flex-col gap-3 text-sm text-muted-foreground">
           <div className="space-y-1">
             <p className="text-sm font-semibold">Lost key (same session)</p>
             <p className="text-sm text-muted-foreground">
@@ -56,6 +57,7 @@ export function SessionRecoveryHelpModal({ open, onClose }: Props) {
               a new deposit on the same or another node, then activate the new
               session for a fresh key.
             </p>
+          </div>
           </div>
         </DialogDescription>
         <DialogFooter>

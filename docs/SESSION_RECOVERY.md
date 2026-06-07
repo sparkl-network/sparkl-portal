@@ -1,6 +1,6 @@
 # Session recovery (portal)
 
-Consumer flows for lost or compromised Sparkl API keys (`sk_…`) live at **`/sessions`** in sparkl-portal.
+Consumer flows for lost or compromised Sparkl API keys (`sk_…`) live at **`/user/session`** (and **`/session`**) in sparkl-portal. Per-session actions are on the detail page (**`/user/session/[sessionId]`**).
 
 ## Scenarios
 
@@ -26,8 +26,8 @@ Run [sparkl-router](https://github.com/sparkl-network/sparkl-router) with chain 
 ## Manual check (Anvil)
 
 1. Fund user via `/user` deposit.
-2. `openSession` on a registered node (wallet tx or future node UI).
-3. Activate via `/sessions` → show API key.
+2. `openSession` on a registered node (wallet tx or node UI); optional **session name** (up to 128 characters, stored on-chain).
+3. Activate via `/user/session` → open session detail → show API key.
 4. **Close** — confirm `settled` on session row; router activate on old id should fail.
 5. **Migrate** on another open session — two txs + activate; new session id and new key.
 

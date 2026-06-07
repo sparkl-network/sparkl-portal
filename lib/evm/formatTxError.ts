@@ -4,6 +4,12 @@ import {
   UserRejectedRequestError,
 } from "viem";
 
+import {
+  RATE_TOO_STALE_SELECTOR,
+  formatRateTooStaleHelp,
+} from "@/lib/evm/rateOracle";
+import { getActiveChainEnv } from "@/lib/chains";
+
 function collectContractRevertLines(err: ContractFunctionRevertedError): string {
   const lines: string[] = [];
   const main = err.shortMessage || err.message;
@@ -81,6 +87,10 @@ function enrichInternalRpcMessage(message: string, details?: string): string {
     lines.push(
       "Gas limit was too low. Retry without editing fees in MetaMask, or raise the gas limit in the wallet UI.",
     );
+  } else if (lower.includes("address not found")) {
+    lines.push(
+      "The wallet could not resolve the contract address on its RPC. Confirm SettlementEscrow in the open-session dialog matches contracts/deployments/local.json, then set SubWallet/MetaMask to the chain RPC from NEXT_PUBLIC_RPC_URL_* (e.g. http://127.0.0.1:8545), not localhost:3000 or /api/rpc.",
+    );
   } else {
     lines.push(
       "MetaMask returned a generic internal JSON-RPC error (often Failed to fetch). Point MetaMask at the **chain node** RPC (NEXT_PUBLIC_RPC_URL_* / :8545), not the portal origin or /api/rpc. Fix wallet RPC in the toolbar registers the chain URL from .env.",
@@ -142,8 +152,15 @@ function enrichOperatorRegistryMessage(message: string, details?: string): strin
   ) {
     return enrichInternalRpcMessage(message, details);
   }
+  if (
+    message.toLowerCase().includes("timed out") ||
+    message.toLowerCase().includes("timeout") ||
+    (details ?? "").toLowerCase().includes("timeout")
+  ) {
+    return `${message}\n\nThe transaction was submitted but no receipt arrived in time. On local Anvil this usually means the wallet (SubWallet, MetaMask, etc.) is on a different RPC than the portal, or has a stale nonce.\n\n1. In SubWallet, open the EVM network for chain 31337 and set RPC to http://127.0.0.1:8545 (same as NEXT_PUBLIC_RPC_URL_ASSHUB_DEV_STUB), not the portal /api/rpc URL.\n2. Clear stuck pending transactions in the wallet, or reset Anvil: ./scripts/deploy-local-sync-env.sh --reset-chain --start-anvil\n3. Restart yarn dev after redeploy, use toolbar **Fix wallet RPC**, then register again.`;
+  }
   if (message.includes("NodeAlreadyRegistered")) {
-    return `${message}\n\nThis node id is already on the registry. Open the node page to manage it, or probe a different node identity.`;
+    return `${message}\n\nThis node id is already on the registry. Open the node page to manage it, or register a different peer id.`;
   }
   if (message.includes("NotNodeOperator")) {
     return `${message}\n\nOnly the on-chain operator wallet can chill/update this node. Confirm the address shown under “Operator” on this page matches the account selected in your wallet.`;
@@ -156,6 +173,31 @@ function enrichOperatorRegistryMessage(message: string, details?: string): strin
   }
   if (message.includes("EscrowNotConfigured")) {
     return `${message}\n\nRegistry owner must call setSettlementEscrow on-chain so defunct transitions can verify session counts against the escrow contract address in your portal env (NEXT_PUBLIC_SETTLEMENT_ESCROW_*).`;
+  }
+  if (message.includes("session not open")) {
+    return `${message}\n\nThe router could not find an open escrow session with this id. Confirm openSession succeeded, you are activating the correct session id, and sparkl-router [chain] escrow_contract matches the portal SettlementEscrow address.`;
+  }
+  if (
+    message.includes("invalid signature") ||
+    message.includes("signature must recover to session user")
+  ) {
+    return `${message}\n\nActivate must be signed by the same wallet that called openSession. Switch to that account in your wallet and retry.`;
+  }
+  if (
+    message.includes("RateTooStale") ||
+    message.includes(RATE_TOO_STALE_SELECTOR)
+  ) {
+    return `${message}\n\n${formatRateTooStaleHelp(getActiveChainEnv())}`;
+  }
+  if (message.includes("InvalidPrice") && message.includes("openSession")) {
+    return `${message}\n\nModelPriceOracle has no default price and this model is not listed. Seed default pricing on deploy or list the model via sparkl-oracle-model-price.`;
+  }
+  if (
+    (message.includes('"openSession" reverted') ||
+      message.includes("openSession")) &&
+    message.includes(RATE_TOO_STALE_SELECTOR)
+  ) {
+    return `openSession reverted: RateSetter rate is stale (${RATE_TOO_STALE_SELECTOR}).\n\n${formatRateTooStaleHelp(getActiveChainEnv())}`;
   }
   if (message.includes("InvalidLifecycle")) {
     return `${message}\n\nFollow the rundown order: Chill while Active → settle sessions → Mark defunct while Chilled. Owners may purge cleared defunct ids off-chain/on-chain separately.`;

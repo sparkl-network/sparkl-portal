@@ -9,7 +9,10 @@ import { getAddress, type Hex } from "viem";
 import { ZERO_ADDRESS } from "@/lib/chains";
 import type { RegisteredNodeWithOperator } from "@/lib/evm/registry";
 import { shortAddress, shortNodeId } from "@/lib/formatAddress";
-import { nodeListDetailHref } from "@/lib/nodeListRow";
+import { nodeListDetailHref, type RegisteredNodeListRow } from "@/lib/nodeListRow";
+import { RouterTunnelBadge } from "@/components/router/RouterTunnelBadge";
+import { normalizeNodeId } from "@/lib/router/normalizeNodeId";
+import type { NodeStatus } from "@/lib/router/types";
 import { NodeLifecycle } from "@/lib/types";
 
 function hueFromHex(hex: string): number {
@@ -67,9 +70,7 @@ function StatusDot({
   );
 }
 
-export type NodeDirectoryTableRow = RegisteredNodeWithOperator & {
-  nodeIdString?: string | null;
-};
+export type NodeDirectoryTableRow = RegisteredNodeListRow;
 
 export type NodeDirectoryTableProps = {
   rows: NodeDirectoryTableRow[];
@@ -77,16 +78,25 @@ export type NodeDirectoryTableProps = {
   peerIdOnlyDisplay?: boolean;
   /** When true, show operator column with link to `/operator/.../node`. */
   showOperatorColumn?: boolean;
+  /** Router status map keyed by normalized node id; omit column when false. */
+  routerConfigured?: boolean;
+  statusByNodeId?: Map<string, NodeStatus>;
+  /** Distinct model count per node from catalog (fallback when tunnel offline). */
+  modelCountByNodeId?: Map<string, number>;
 };
 
 export function NodeDirectoryTable({
   rows,
   peerIdOnlyDisplay = false,
   showOperatorColumn = true,
+  routerConfigured = false,
+  statusByNodeId,
+  modelCountByNodeId,
 }: NodeDirectoryTableProps) {
   const router = useRouter();
 
   const opCol = showOperatorColumn;
+  const showRouter = routerConfigured;
 
   return (
     <div className="relative w-full overflow-auto rounded-lg border">
@@ -109,13 +119,29 @@ export function NodeDirectoryTable({
             ) : null}
             <th
               className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
-              style={{ width: opCol ? "12%" : "14%" }}
+              style={{ width: opCol ? "10%" : "12%" }}
             >
-              Status
+              Listing
             </th>
+            {showRouter ? (
+              <th
+                className="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+                style={{ width: "10%" }}
+              >
+                Tunnel
+              </th>
+            ) : null}
+            {showRouter ? (
+              <th
+                className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
+                style={{ width: "6%" }}
+              >
+                Models
+              </th>
+            ) : null}
             <th
               className="h-12 px-4 text-right align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0"
-              style={{ width: opCol ? "10%" : "12%" }}
+              style={{ width: opCol ? "8%" : "10%" }}
             >
               Fee
             </th>
@@ -142,10 +168,13 @@ export function NodeDirectoryTable({
         <tbody className="[&_tr:last-child]:border-0">
           {rows.map((row) => {
             const { nodeId, info, operator } = row;
+            const moniker = row.moniker?.trim() || null;
             const nodeIdString = row.nodeIdString ?? null;
             const displayNodeLabel =
+              moniker ??
               nodeIdString ??
               (peerIdOnlyDisplay ? "—" : shortNodeId(nodeId));
+            const showNodeIdSubtitle = Boolean(moniker);
             const rowHref = nodeListDetailHref(row);
             const registered =
               info.payout.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
@@ -168,6 +197,12 @@ export function NodeDirectoryTable({
             const capsLabel = `${info.supportsTEE ? "TEE" : "—"} · ${
               info.supportsBestEffort ? "BE" : "—"
             }`;
+            const nodeKey = normalizeNodeId(nodeId);
+            const routerStatus = nodeKey ? statusByNodeId?.get(nodeKey) : undefined;
+            const modelCount =
+              routerStatus?.model_count ??
+              (nodeKey ? modelCountByNodeId?.get(nodeKey) : undefined) ??
+              null;
 
             return (
               <tr
@@ -183,9 +218,18 @@ export function NodeDirectoryTable({
                       active={info.active}
                       lifecycle={registered ? info.lifecycle : null}
                     />
-                    <span className="text-sm tabular-nums font-mono break-all">
-                      {displayNodeLabel}
-                    </span>
+                    <div className="flex flex-col min-w-0">
+                      <span
+                        className={`text-sm break-all ${moniker ? "font-medium" : "tabular-nums font-mono"}`}
+                      >
+                        {displayNodeLabel}
+                      </span>
+                      {showNodeIdSubtitle ? (
+                        <span className="text-xs tabular-nums font-mono text-muted-foreground">
+                          {shortNodeId(nodeId)}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                 </td>
                 {showOperatorColumn ? (
@@ -202,6 +246,26 @@ export function NodeDirectoryTable({
                 <td className="p-4 align-middle [&:has([role=checkbox])]:pr-0">
                   <span className="text-sm">{statusTitle}</span>
                 </td>
+                {showRouter ? (
+                  <td className="p-4 align-middle [&:has([role=checkbox])]:pr-0">
+                    {routerStatus ? (
+                      <RouterTunnelBadge
+                        status={routerStatus.status}
+                        detail={routerStatus}
+                        compact
+                      />
+                    ) : (
+                      <RouterTunnelBadge status="offline" compact />
+                    )}
+                  </td>
+                ) : null}
+                {showRouter ? (
+                  <td className="p-4 text-right align-middle [&:has([role=checkbox])]:pr-0">
+                    <span className="text-sm tabular-nums font-mono">
+                      {modelCount != null && modelCount > 0 ? modelCount : "—"}
+                    </span>
+                  </td>
+                ) : null}
                 <td className="p-4 text-right align-middle [&:has([role=checkbox])]:pr-0">
                   <span className="text-sm tabular-nums font-mono">{feeLabel}</span>
                 </td>

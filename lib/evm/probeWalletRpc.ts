@@ -1,9 +1,9 @@
-type EthereumProvider = {
-  request: (args: {
-    method: string;
-    params?: unknown[];
-  }) => Promise<unknown>;
-};
+import type { Connector } from "wagmi";
+
+import {
+  type EthereumProvider,
+  getConnectedInjectedProvider,
+} from "@/lib/evm/injectedProvider";
 
 export type WalletRpcProbeResult =
   | { ok: true; chainId: number }
@@ -14,23 +14,27 @@ function hasContractBytecode(code: unknown): boolean {
 }
 
 /**
- * Exercises MetaMask’s saved chain RPC (not the portal). Verifies chain id and that the
- * escrow contract is deployed on the network the wallet actually talks to.
+ * Exercises the injected wallet’s saved chain RPC (SubWallet, MetaMask, etc.) — not the portal
+ * `/api/rpc` proxy. Verifies chain id and that core contracts exist on the network the wallet uses.
  */
 export async function probeInjectedWalletRpc(
   expectedChainId: number,
   opts?: {
     escrowAddress?: `0x${string}`;
+    registryAddress?: `0x${string}`;
     expectedChainRpcUrl?: string;
+    connector?: Connector;
+    connectorName?: string;
   },
 ): Promise<WalletRpcProbeResult> {
   if (typeof window === "undefined") {
     return { ok: false, message: "Wallet probe must run in the browser." };
   }
-  const eth = (window as Window & { ethereum?: EthereumProvider }).ethereum;
+  const eth = await getConnectedInjectedProvider(opts?.connector);
   if (!eth?.request) {
-    return { ok: false, message: "No injected wallet (e.g. MetaMask) found." };
+    return { ok: false, message: "No injected wallet provider for the connected account." };
   }
+  const walletLabel = opts?.connectorName?.trim() || "connected wallet";
 
   const rpcHint = opts?.expectedChainRpcUrl
     ? ` Required chain RPC: ${opts.expectedChainRpcUrl}`
@@ -57,16 +61,23 @@ export async function probeInjectedWalletRpc(
 
     await eth.request({ method: "eth_blockNumber", params: [] });
 
+    const contractChecks: { label: string; address: `0x${string}` }[] = [];
+    if (opts?.registryAddress) {
+      contractChecks.push({ label: "OperatorRegistry", address: opts.registryAddress });
+    }
     if (opts?.escrowAddress) {
+      contractChecks.push({ label: "SettlementEscrow", address: opts.escrowAddress });
+    }
+    for (const { label, address } of contractChecks) {
       const code = await eth.request({
         method: "eth_getCode",
-        params: [opts.escrowAddress, "latest"],
+        params: [address, "latest"],
       });
       if (!hasContractBytecode(code)) {
         return {
           ok: false,
           message:
-            `MetaMask’s RPC does not see SettlementEscrow at ${opts.escrowAddress} (eth_getCode empty). The portal may be reading a different node than your wallet.${rpcHint} Delete every custom network for chain ${expectedChainId}, then use toolbar **Fix wallet RPC** so only that URL remains in Select RPC URL — not :8545, not localhost, not /api/rpc.`,
+            `${walletLabel} RPC does not see ${label} at ${address} (eth_getCode empty). The portal reads Anvil via /api/rpc but ${walletLabel} is on a different endpoint.${rpcHint} In ${walletLabel}, set EVM chain ${expectedChainId} RPC to that URL only (not the portal /api/rpc). Toolbar → **Fix wallet RPC**. If you use SubWallet, disable MetaMask for this site so the probe uses SubWallet, not window.ethereum.`,
         };
       }
     }
@@ -78,7 +89,7 @@ export async function probeInjectedWalletRpc(
       if (msg.toLowerCase().includes("fetch")) {
         return {
           ok: false,
-          message: `MetaMask cannot complete gas RPC on its saved network (Failed to fetch).${rpcHint} Remove extra RPC URLs in Select RPC URL and keep a single entry matching .env.`,
+          message: `Wallet cannot complete gas RPC on its saved network (Failed to fetch).${rpcHint} Point the wallet network RPC at the chain node from .env, not the portal origin.`,
         };
       }
     }
@@ -95,7 +106,7 @@ export async function probeInjectedWalletRpc(
       return {
         ok: false,
         message:
-          `MetaMask cannot reach its saved chain RPC (Failed to fetch).${rpcHint} If the portal can simulate (eth_fillTransaction) but MetaMask fails on confirm, your wallet still has a stale RPC (e.g. :8545 or portal /api/rpc). Delete all chain ${expectedChainId} networks and re-add with only the .env chain URL.`,
+          `Wallet cannot reach its saved chain RPC (Failed to fetch).${rpcHint} If the portal simulates OK but signing hangs, the wallet is likely on a different RPC than Anvil. Re-add chain ${expectedChainId} with only the .env chain URL (http://127.0.0.1:8545).`,
       };
     }
     return { ok: false, message: msg };

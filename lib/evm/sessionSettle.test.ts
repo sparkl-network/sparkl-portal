@@ -18,11 +18,17 @@ function session(partial: Partial<EscrowSession> & Pick<EscrowSession, "lockedIn
     tier: SecurityTier.BEST_EFFORT,
     usageRecorded: 0n,
     paidToProviderInternal: 0n,
+    paidToProtocolInternal: 0n,
     openingInternal: partial.lockedInternal,
     openedAt: 1n,
     settled: false,
     inputTokensRecorded: 0n,
     outputTokensRecorded: 0n,
+    inputPricePer1kAtOpen: 0n,
+    outputPricePer1kAtOpen: 0n,
+    usdcPerDotAtOpen: 0n,
+    pricingUsedDefault: false,
+    name: "",
     ...partial,
   };
 }

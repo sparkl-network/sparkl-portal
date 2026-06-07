@@ -5,12 +5,19 @@ import { useQuery } from "@tanstack/react-query";
 import NextLink from "next/link";
 import { useParams } from "next/navigation";
 import { getAddress, isAddress, type Address, type Hex } from "viem";
-import { usePublicClient } from "wagmi";
+import { usePortalPublicClient } from "@/lib/usePortalPublicClient";
 
 import { NodeDirectoryTable } from "@/components/nodes/NodeDirectoryTable";
 import { ZERO_ADDRESS } from "@/lib/chains";
 import { getOperatorNodes, getNode, type RegisteredNodeWithOperator } from "@/lib/evm/registry";
 import { shortAddress } from "@/lib/formatAddress";
+import {
+  enrichRegisteredNodesWithPeerId,
+  mergeRouterMoniker,
+  type RegisteredNodeListRow,
+} from "@/lib/nodeListRow";
+import { useRouterNodesStatus } from "@/lib/router/useRouterData";
+import { routerBaseUrl } from "@/lib/router/activate";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -19,10 +26,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 
-function rowMatchesSearch(r: RegisteredNodeWithOperator, q: string): boolean {
+function rowMatchesSearch(r: RegisteredNodeListRow, q: string): boolean {
   if (!q.trim()) return true;
   const s = q.trim().toLowerCase();
-  return r.nodeId.toLowerCase().includes(s) || r.info.payout.toLowerCase().includes(s);
+  const moniker = (r.moniker ?? "").toLowerCase();
+  const peer = (r.nodeIdString ?? "").toLowerCase();
+  return (
+    r.nodeId.toLowerCase().includes(s) ||
+    moniker.includes(s) ||
+    peer.includes(s) ||
+    r.info.payout.toLowerCase().includes(s)
+  );
 }
 
 export default function OperatorNodesPage() {
@@ -36,12 +50,14 @@ export default function OperatorNodesPage() {
   }, [raw]);
 
   const { hubConfig, configError } = useHubChainConfig();
-  const publicClient = usePublicClient({ chainId: hubConfig?.chainId });
+  const publicClient = usePortalPublicClient();
 
   const registryUnset = Boolean(!hubConfig || !hubConfig.operatorRegistryAddress || hubConfig.operatorRegistryAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase());
 
   const listReady = Boolean(operatorAddr && hubConfig && publicClient && !registryUnset && !configError);
   const [search, setSearch] = useState("");
+  const routerConfigured = Boolean(routerBaseUrl());
+  const { statusByNodeId } = useRouterNodesStatus();
 
   const { data: rows = [], error: listError, isFetching: listLoading } = useQuery({
     queryKey: ["operatorNodesPage", hubConfig?.chainId, hubConfig?.operatorRegistryAddress, operatorAddr],
@@ -50,7 +66,12 @@ export default function OperatorNodesPage() {
       const registry = hubConfig.operatorRegistryAddress;
       const nodeIds: Hex[] = await getOperatorNodes(publicClient, registry, operatorAddr);
       const infos = await Promise.all(nodeIds.map((nodeId) => getNode(publicClient, registry, nodeId)));
-      return nodeIds.map((nodeId, i): RegisteredNodeWithOperator => ({ nodeId, info: infos[i], operator: operatorAddr }));
+      const base = nodeIds.map((nodeId, i): RegisteredNodeWithOperator => ({
+        nodeId,
+        info: infos[i],
+        operator: operatorAddr,
+      }));
+      return enrichRegisteredNodesWithPeerId(base);
     },
     enabled: listReady,
   });
@@ -64,7 +85,15 @@ export default function OperatorNodesPage() {
     return { registered, active, waiting, total: rows.length };
   }, [rows]);
 
-  const filteredRows = useMemo(() => rows.filter((r) => rowMatchesSearch(r, search)), [rows, search]);
+  const rowsWithMoniker = useMemo(
+    () => (routerConfigured ? mergeRouterMoniker(rows, statusByNodeId) : rows),
+    [rows, statusByNodeId, routerConfigured],
+  );
+
+  const filteredRows = useMemo(
+    () => rowsWithMoniker.filter((r) => rowMatchesSearch(r, search)),
+    [rowsWithMoniker, search],
+  );
   const listErrMsg = listError instanceof Error ? listError.message : "Could not load nodes";
 
   return (
@@ -119,17 +148,22 @@ export default function OperatorNodesPage() {
             <span className="flex items-center gap-1"><span className="h-[5px] w-[5px] rounded-full bg-gray-400" />Waiting</span>
             <span className="flex items-center gap-1">→ Open node</span>
           </div>
-          <Input placeholder={`Filter by node id or payout · ${shortAddress(operatorAddr ?? "0x")}`} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder={`Filter by moniker, node id, or payout · ${shortAddress(operatorAddr ?? "0x")}`} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
 
         {/* Results count */}
-        <p className="text-xs text-muted-foreground">Showing {filteredRows.length} of {rows.length} nodes</p>
+        <p className="text-xs text-muted-foreground">Showing {filteredRows.length} of {rowsWithMoniker.length} nodes</p>
 
         {/* Table or empty */}
         {filteredRows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No nodes match this search.</p>
         ) : (
-          <NodeDirectoryTable rows={filteredRows} showOperatorColumn={false} />
+          <NodeDirectoryTable
+            rows={filteredRows}
+            showOperatorColumn={false}
+            routerConfigured={routerConfigured}
+            statusByNodeId={statusByNodeId}
+          />
         )}
       </>)}
 

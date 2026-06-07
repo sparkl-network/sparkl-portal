@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 import { useAccount, useChainId, useSwitchChain } from "wagmi";
 
 import { ToolbarConnectAccount } from "@/components/ToolbarConnectAccount";
+import { UserMenuButton } from "@/components/UserMenuButton";
 import { type ChainEnv } from "@/lib/chains";
 import { ensureDevWalletNetwork } from "@/lib/evm/ensureDevWalletNetwork";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
@@ -26,7 +27,7 @@ function chainEnvTitle(env: ChainEnv): string {
 }
 
 export function AppToolbar() {
-  const { isConnected } = useAccount();
+  const { isConnected, connector } = useAccount();
   const chainId = useChainId();
   const { switchChainAsync, isPending: isSwitchPending } = useSwitchChain();
   const { hubConfig, configError } = useHubChainConfig();
@@ -72,10 +73,13 @@ export function AppToolbar() {
             <NextLink href="/model" className="text-muted-foreground hover:text-foreground transition-colors">
               Models
             </NextLink>
+            <NextLink href="/telemetry" className="text-muted-foreground hover:text-foreground transition-colors">
+              Telemetry
+            </NextLink>
             <NextLink href="/user" className="text-muted-foreground hover:text-foreground transition-colors">
               User
             </NextLink>
-            <NextLink href="/sessions" className="text-muted-foreground hover:text-foreground transition-colors">
+            <NextLink href="/session" className="text-muted-foreground hover:text-foreground transition-colors">
               Sessions
             </NextLink>
           </div>
@@ -92,7 +96,7 @@ export function AppToolbar() {
                    setRpcFixError(null);
                    setRpcFixNotice(null);
                    setRpcFixBusy(true);
-                  void ensureDevWalletNetwork(hubConfig)
+                  void ensureDevWalletNetwork(hubConfig, connector)
                     .then((notice) => {
                       setRpcFixNotice(notice ?? null);
                     })
@@ -126,6 +130,7 @@ export function AppToolbar() {
                 {isSwitchPending ? "Switching..." : "Switch network"}
               </Button>
             ) : null}
+            <UserMenuButton />
             <ConnectButton.Custom>
               {({ account, mounted, openAccountModal, openConnectModal }) => (
                 <ToolbarConnectAccount
@@ -150,10 +155,13 @@ export function AppToolbar() {
           <NextLink href="/model" className="text-muted-foreground hover:text-foreground transition-colors">
             Models
           </NextLink>
+          <NextLink href="/telemetry" className="text-muted-foreground hover:text-foreground transition-colors">
+            Telemetry
+          </NextLink>
           <NextLink href="/user" className="text-muted-foreground hover:text-foreground transition-colors">
             User
           </NextLink>
-          <NextLink href="/sessions" className="text-muted-foreground hover:text-foreground transition-colors">
+          <NextLink href="/session" className="text-muted-foreground hover:text-foreground transition-colors">
             Sessions
           </NextLink>
         </div>

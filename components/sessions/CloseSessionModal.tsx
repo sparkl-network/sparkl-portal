@@ -114,8 +114,9 @@ function CloseSessionForm({
         <DialogHeader>
           <DialogTitle>Close session</DialogTitle>
         </DialogHeader>
-        <DialogDescription className="flex flex-col gap-2">
-          <p className="text-muted-foreground">
+        <DialogDescription asChild>
+          <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+          <p>
             Closes session {sessionId.toString()} and remits the remaining lock.
             Provider share is credited on-chain; your share returns to escrow
             balance (internal DOT).
@@ -154,6 +155,7 @@ function CloseSessionForm({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
+          </div>
         </DialogDescription>
         <DialogFooter>
           <Button onClick={submit} disabled={busy || locked === 0n}>

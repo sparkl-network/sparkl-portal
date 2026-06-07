@@ -3,10 +3,13 @@ import {
   type Hex,
   type PublicClient,
   type WalletClient,
+  encodeFunctionData,
   getAddress,
   parseAbiItem,
   zeroHash,
 } from "viem";
+
+import { sendViaInjectedProvider } from "@/lib/evm/sendViaInjectedProvider";
 
 import { operatorRegistryAbi } from "@/lib/abi";
 import { ZERO_ADDRESS } from "@/lib/chains";
@@ -255,6 +258,7 @@ export async function getOperatorNodes(
 
 export async function registerNode(
   walletClient: WalletClient,
+  publicClient: PublicClient,
   registryAddress: Address,
   params: {
     nodeId: Hex;
@@ -271,21 +275,83 @@ export async function registerNode(
   const chain = walletClient.chain;
   if (!chain) throw new Error("Wallet chain unavailable");
 
-  return walletClient.writeContract({
+  const rpcChainId = publicClient.chain?.id;
+  if (rpcChainId !== undefined && rpcChainId !== chain.id) {
+    throw new Error(
+      `Wallet reports chain ${chain.id} but the app RPC is on chain ${rpcChainId}. Switch your wallet to the hub chain (id ${rpcChainId}) and try again.`,
+    );
+  }
+
+  const args = [
+    params.nodeId,
+    params.payout,
+    params.supportsBestEffort,
+    params.supportsTEE,
+    params.metadataURI,
+    params.initialEncryptionPubkey ?? zeroHash,
+  ] as const;
+
+  await publicClient.simulateContract({
     address: registryAddress,
     abi: operatorRegistryAbi,
     functionName: "registerNode",
-    args: [
-      params.nodeId,
-      params.payout,
-      params.supportsBestEffort,
-      params.supportsTEE,
-      params.metadataURI,
-      params.initialEncryptionPubkey ?? zeroHash,
-    ],
+    args,
     account,
-    chain,
   });
+
+  const data = encodeFunctionData({
+    abi: operatorRegistryAbi,
+    functionName: "registerNode",
+    args,
+  });
+
+  try {
+    return await walletClient.writeContract({
+      address: registryAddress,
+      abi: operatorRegistryAbi,
+      functionName: "registerNode",
+      args,
+      account,
+      chain,
+    });
+  } catch (walletWriteErr) {
+    const msg =
+      walletWriteErr instanceof Error
+        ? walletWriteErr.message
+        : String(walletWriteErr);
+    const lower = msg.toLowerCase();
+    const rpcish =
+      lower.includes("failed to fetch") ||
+      lower.includes("internal error was received") ||
+      lower.includes("-32603");
+    if (!rpcish) throw walletWriteErr;
+
+    const prepared = await publicClient.prepareTransactionRequest({
+      account,
+      chain,
+      to: registryAddress,
+      data,
+    });
+
+    try {
+      return await walletClient.sendTransaction({
+        account,
+        chain,
+        to: registryAddress,
+        data,
+      });
+    } catch {
+      return sendViaInjectedProvider({
+        from: account.address,
+        to: registryAddress,
+        data,
+        gas: prepared.gas,
+        maxFeePerGas: prepared.maxFeePerGas,
+        maxPriorityFeePerGas: prepared.maxPriorityFeePerGas,
+        gasPrice: prepared.gasPrice,
+      });
+    }
+  }
 }
 
 export async function setNodePayout(

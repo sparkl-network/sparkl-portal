@@ -9,11 +9,10 @@ import {
 import { http } from "wagmi";
 
 import {
+  chainRpcUrl,
   getActiveChainConfig,
   getActiveChainEnv,
   hubChainFromConfig,
-  portalPublicRpcUrl,
-  portalRpcProxyEnabled,
 } from "@/lib/chains";
 
 /** @param pageOrigin Client-only: `window.location.origin` for portal `/api/rpc` transport when proxied. */
@@ -27,9 +26,8 @@ export function getHubWagmiConfig(pageOrigin?: string) {
     );
   }
 
-  const transportUrl = portalRpcProxyEnabled(cfg)
-    ? portalPublicRpcUrl(cfg, pageOrigin)
-    : cfg.rpcUrl;
+  // Wallet + injected provider: always the chain node RPC from env (never /api/rpc).
+  const walletTransportUrl = chainRpcUrl(cfg);
 
   const devStub = getActiveChainEnv() === "assethub-dev-stub";
   const wallets = devStub
@@ -53,7 +51,7 @@ export function getHubWagmiConfig(pageOrigin?: string) {
       },
     ],
     transports: {
-      [chain.id]: http(transportUrl, { timeout: 15_000 }),
+      [chain.id]: http(walletTransportUrl, { timeout: 15_000 }),
     },
     ssr: false,
   });

@@ -11,8 +11,4 @@ export type RouterActivateResponse = {
   sessionId: string;
 };
 
-export function routerBaseUrl(): string | null {
-  const raw = process.env.NEXT_PUBLIC_SPARKL_ROUTER_URL?.trim();
-  if (!raw) return null;
-  return raw.replace(/\/+$/, "");
-}
+export { routerBaseUrl, routerConfigured } from "@/lib/router/routerClient";

@@ -37,13 +37,15 @@ export function ApiKeyRevealModal({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <DialogDescription className="flex flex-col gap-1">
-          <p>{description}</p>
-          <span className="text-xs text-muted-foreground">Session {sessionId}</span>
-          <Input value={apiKey} readOnly className="font-mono" />
-          <span className="text-xs text-muted-foreground">
-            Use as OpenAI SDK apiKey with base URL set to your Sparkl router URL.
-          </span>
+        <DialogDescription asChild>
+          <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+            <p>{description}</p>
+            <span className="text-xs">Session {sessionId}</span>
+            <Input value={apiKey} readOnly className="font-mono text-foreground" />
+            <span className="text-xs">
+              Use as OpenAI SDK apiKey with base URL set to your Sparkl router URL.
+            </span>
+          </div>
         </DialogDescription>
         <DialogFooter>
           <Button

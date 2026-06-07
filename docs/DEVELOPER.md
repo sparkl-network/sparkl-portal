@@ -50,14 +50,20 @@ Use **Switch network** in the toolbar until the wallet is on **`31337`** with th
 
 ### Shared testnet (`https://rpc-testnet.sparkl.network`)
 
-Pre-Paseo testing uses the same chain id **`31337`** and deterministic deploy addresses as local Anvil. In **`.env.local`**:
+Pre-Paseo testing uses chain id **`31337`** on **`https://rpc-testnet.sparkl.network`**. Contract addresses are **not** the same as a fresh **`deployments/local.json`** from `launch-local.sh` (deploy order differs). Use **`sparkl-solo/contracts/deployments/testnet.json`** or read from **`SparklNetworkConfig`**:
+
+```bash
+cast call 0x59e885FB2E6E0381e09206af00b2436bA1CB0DD6 "modelPriceOracle()(address)" --rpc-url https://rpc-testnet.sparkl.network
+```
+
+In **`.env.local`**:
 
 ```bash
 NEXT_PUBLIC_RPC_URL_ASSHUB_DEV_STUB=https://rpc-testnet.sparkl.network
 NEXT_PUBLIC_CHAIN_ID_ASSHUB_DEV_STUB=31337
 NEXT_PUBLIC_CHAIN_NAME_ASSHUB_DEV_STUB=Sparkl testnet
 NEXT_PUBLIC_RPC_USE_SAME_ORIGIN_PROXY=0
-# …operator / escrow addresses from sparkl-solo/contracts/deployments/local.json
+# …registry / escrow / modelPriceOracle from contracts/deployments/testnet.json
 ```
 
 MetaMask and the portal both use **`https://rpc-testnet.sparkl.network`** (chain RPC). Do not point the wallet at the portal **`/api/rpc`** URL. **Fix wallet RPC** registers the HTTPS chain URL from env. The portal skips the same-origin proxy automatically for public HTTPS RPC (CORS is open on the node).
@@ -109,11 +115,41 @@ After every Anvil restart (or whenever you start a fresh Anvil):
 
 ---
 
-## Provider probe API (registration)
+## Node registration (operator portal)
 
-The portal’s **`POST /api/operator-node-probe`** (used on **Register node**) runs server-side **`GET /status`**, **`GET /v1/models`**, and **`GET /identity`** on the operator’s HTTP origin. It does **not** call operator-private paths such as **`/details`**.
+**Register node** (`/node/register`) binds the operator wallet to a **`nodeId`** on Hub EVM. The operator enters a libp2p **peer id** (`12D3…`) or raw **`bytes32`** hex; the portal derives the canonical on-chain id via **`nodeIdFromLibp2pPeerIdString`** (keccak256 of the libp2p multihash bytes).
 
-**Registration rule:** after a successful probe, the transaction **`nodeId`** must be the **`node_id`** from **`/identity`** (Hub EVM canonical **`bytes32`** = **`keccak256(ed25519_pubkey)`** from sparkl-solo). The UI enables **Register on-chain** only when your peer-id / hex field matches that **`/identity`** payload. On-chain **`metadataURI`** is stored as versioned JSON (`version`, `baseUrl`, optional **`peer_id`** / **`node_id`**) so **`parseMetadataUri`** can recover the HTTP origin for probes and directory enrichment (**`GET /identity`** for **`peer_id`**).
+**Registration metadata:** `registerNode` may store optional JSON **`metadataURI`** (`peer_id`, `node_id` only). **Moniker is not on-chain** — it is set in sparkl-solo **`[node].moniker`** and exposed via the router tunnel (`GET /status/nodes`). The node directory searches monikers from router status. Legacy rows may use bare HTTP origins or older JSON shapes — see **`parseMetadataUri`** in `lib/nodeBaseUrl.ts`.
+
+**Runtime (separate from commercial registration):** sparkl-solo opens a **WSS subscription** to the router (`[router]` in node TOML) and may submit on-chain heartbeats / usage when configured. Commercial registration is portal-only; the portal does not probe or dial the node.
+
+### Router integration (status + catalog)
+
+The portal merges router data into **Nodes**, **Models**, and **Sessions**:
+
+| Portal proxy | Upstream | Auth |
+|--------------|----------|------|
+| `GET /api/router-status/nodes` | `GET /status/nodes` | `SPARKL_ROUTER_ADMIN_TOKEN` |
+| `GET /api/router-status/nodes/[nodeId]` | `GET /status/nodes/{node_id}` | same (bytes32 hex, optional `0x`) |
+| `GET /api/router-catalog/providers` | `GET /v1/catalog/providers` | none |
+| `GET /api/router-catalog/features` | `GET /v1/catalog/features` | none |
+| `POST /api/router-telemetry/subscribe` | mints WS URL for `GET /status/subscribe` | server uses `SPARKL_ROUTER_ADMIN_TOKEN` |
+
+Live model load (`active_requests/concurrency`, queue depth) uses **WebSocket telemetry** (`useRouterTelemetry`) with HTTP catalog poll as fallback.
+
+**`.env.local`:**
+
+```bash
+NEXT_PUBLIC_SPARKL_ROUTER_URL=http://127.0.0.1:3001
+SPARKL_ROUTER_URL=http://127.0.0.1:3001
+SPARKL_ROUTER_ADMIN_TOKEN=<same as sparkl-router config [portal].admin_token>
+```
+
+- **Listing** (registry lifecycle: Active / Inactive / Chilled) is on-chain.
+- **Tunnel** (online / degraded / offline) is from router status.
+- **Models** capacity (`2/4` load, queue depth, features) is from catalog providers plus live `model_capacity` WS events.
+
+Restart `yarn dev` after changing server env vars.
 
 ---
 

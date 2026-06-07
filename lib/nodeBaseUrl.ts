@@ -1,7 +1,6 @@
 /**
- * On-chain `metadataURI` may be a bare HTTP(S) origin or (forward-compatible)
- * a JSON document with a **`baseUrl`** field — see {@link parseMetadataUri}.
- * Probes use **`GET /status`**, **`GET /v1/models`**, **`GET /identity`** (not operator-private paths).
+ * On-chain `metadataURI` may be a bare HTTP(S) origin, JSON with optional
+ * `baseUrl` and/or `peer_id` / `node_id` for display — see {@link parseMetadataUri}.
  */
 
 /** Normalize user input to `http(s)://host:port` (no path, query, or hash). */
@@ -18,18 +17,39 @@ export function normalizeNodeBaseUrl(raw: string): string | null {
 }
 
 export type ParsedMetadataUri = {
-  /** HTTP(S) origin for `fetch(base + '/status')`, etc. */
-  baseUrl: string;
+  /** HTTP(S) origin when present (legacy rows or JSON with baseUrl). */
+  baseUrl?: string;
   /** Full on-chain string (JSON or legacy URL). */
   raw: string;
-  /** Software/mock TPM `peer_id` from registration JSON, when present. */
+  /** Operator-facing label (max 128 chars) from registration JSON. */
+  moniker?: string;
+  /** Libp2p peer id from registration JSON, when present. */
   peerId?: string;
   /** Canonical `node_id` (`0x` + 64 hex) from registration JSON, when present. */
   nodeId?: string;
 };
 
+function peerIdFromJson(o: { peer_id?: unknown }): string | undefined {
+  return typeof o.peer_id === "string" && o.peer_id.trim()
+    ? o.peer_id.trim()
+    : undefined;
+}
+
+function nodeIdFromJson(o: { node_id?: unknown }): string | undefined {
+  return typeof o.node_id === "string" && o.node_id.trim()
+    ? o.node_id.trim()
+    : undefined;
+}
+
+function monikerFromJson(o: { moniker?: unknown }): string | undefined {
+  const m = typeof o.moniker === "string" ? o.moniker.trim() : "";
+  if (!m || m.length > 128) return undefined;
+  return m;
+}
+
 /**
- * Parse `ProviderRegistry` **`metadataURI`**: legacy bare origin URL, or JSON **`{ "version", "baseUrl", ... }`**.
+ * Parse `ProviderRegistry` **`metadataURI`**: legacy bare origin URL, or JSON
+ * **`{ "version", "baseUrl"?, "peer_id"?, "node_id"? }`**.
  */
 export function parseMetadataUri(raw: string): ParsedMetadataUri | null {
   const t = raw.trim();
@@ -40,20 +60,17 @@ export function parseMetadataUri(raw: string): ParsedMetadataUri | null {
         baseUrl?: unknown;
         peer_id?: unknown;
         node_id?: unknown;
+        moniker?: unknown;
       };
-      if (typeof o.baseUrl === "string") {
-        const baseUrl = normalizeNodeBaseUrl(o.baseUrl);
-        if (baseUrl) {
-          const peerId =
-            typeof o.peer_id === "string" && o.peer_id.trim()
-              ? o.peer_id.trim()
-              : undefined;
-          const nodeId =
-            typeof o.node_id === "string" && o.node_id.trim()
-              ? o.node_id.trim()
-              : undefined;
-          return { baseUrl, raw: t, peerId, nodeId };
-        }
+      const peerId = peerIdFromJson(o);
+      const nodeId = nodeIdFromJson(o);
+      const moniker = monikerFromJson(o);
+      const baseUrl =
+        typeof o.baseUrl === "string"
+          ? normalizeNodeBaseUrl(o.baseUrl) ?? undefined
+          : undefined;
+      if (baseUrl || peerId || nodeId || moniker) {
+        return { baseUrl, raw: t, peerId, nodeId, moniker };
       }
     } catch {
       return null;
@@ -65,7 +82,7 @@ export function parseMetadataUri(raw: string): ParsedMetadataUri | null {
   return null;
 }
 
-/** HTTP origin for node probes; `null` if invalid. */
+/** HTTP origin when metadata includes one; `null` otherwise. */
 export function metadataUriToBaseUrl(uri: string): string | null {
   return parseMetadataUri(uri)?.baseUrl ?? null;
 }
@@ -75,13 +92,18 @@ export function softwarePeerIdFromMetadataUri(raw: string): string | null {
   return parseMetadataUri(raw)?.peerId ?? null;
 }
 
+/** Legacy: moniker in on-chain JSON (prefer router tunnel status from sparkl-solo). */
+export function monikerFromMetadataUri(raw: string): string | null {
+  return parseMetadataUri(raw)?.moniker ?? null;
+}
+
 /**
  * URL to fetch for directory “region” metadata. If `metadataURI` resolves to a bare origin,
  * use `…/details` (legacy node path); otherwise treat as a direct metadata URL.
  */
 export function registryMetadataUriToFetchUrl(uri: string): string | null {
   const parsed = parseMetadataUri(uri);
-  if (!parsed) return null;
+  if (!parsed?.baseUrl) return null;
   try {
     const u = new URL(parsed.baseUrl);
     const path = u.pathname.replace(/\/+$/, "") || "";

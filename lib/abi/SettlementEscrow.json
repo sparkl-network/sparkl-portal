@@ -190,6 +190,11 @@
         "name": "amountInternal",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "internalType": "string"
       }
     ],
     "outputs": [],
@@ -223,6 +228,45 @@
         "name": "",
         "type": "address",
         "internalType": "contract IPriceOracle"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "protocolBalances",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "protocolFeeBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "protocolTreasury",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -271,6 +315,19 @@
   },
   {
     "type": "function",
+    "name": "recordUsageRole",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "registry",
     "inputs": [],
     "outputs": [
@@ -287,74 +344,150 @@
     "name": "sessions",
     "inputs": [
       {
-        "name": "",
+        "name": "sessionId",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "user",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "nodeId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "modelId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "tier",
-        "type": "uint8",
-        "internalType": "enum SecurityTier"
-      },
-      {
-        "name": "lockedInternal",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "usageRecorded",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "paidToProviderInternal",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "openingInternal",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "openedAt",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "settled",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "inputTokensRecorded",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "outputTokensRecorded",
-        "type": "uint64",
-        "internalType": "uint64"
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct SettlementEscrow.Session",
+        "components": [
+          {
+            "name": "user",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "nodeId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "modelId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "tier",
+            "type": "uint8",
+            "internalType": "enum SecurityTier"
+          },
+          {
+            "name": "lockedInternal",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usageRecorded",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "paidToProviderInternal",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "paidToProtocolInternal",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "openingInternal",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "openedAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "settled",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "inputTokensRecorded",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "outputTokensRecorded",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "inputPricePer1kAtOpen",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "outputPricePer1kAtOpen",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "usdcPerDotAtOpen",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "pricingUsedDefault",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setProtocolFeeBps",
+    "inputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setProtocolTreasury",
+    "inputs": [
+      {
+        "name": "next",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRecordUsage",
+    "inputs": [
+      {
+        "name": "next",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -541,6 +674,19 @@
   },
   {
     "type": "function",
+    "name": "withdrawProtocolDot",
+    "inputs": [
+      {
+        "name": "amountInternal",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "withdrawProviderDot",
     "inputs": [
       {
@@ -609,6 +755,100 @@
   },
   {
     "type": "event",
+    "name": "ProtocolDotWithdrawn",
+    "inputs": [
+      {
+        "name": "treasury",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "burnedInternal",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "paidNative",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProtocolFeeAccrued",
+    "inputs": [
+      {
+        "name": "sessionId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "grossToProvider",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "protocolFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "providerNet",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProtocolFeeBpsUpdated",
+    "inputs": [
+      {
+        "name": "previousBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "nextBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProtocolTreasuryUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ProviderDotWithdrawn",
     "inputs": [
       {
@@ -628,6 +868,25 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RecordUsageUpdated",
+    "inputs": [
+      {
+        "name": "previous",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "next",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -702,6 +961,36 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      },
+      {
+        "name": "inputPricePer1kAtOpen",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "outputPricePer1kAtOpen",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "usdcPerDotAtOpen",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "pricingUsedDefault",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
       }
     ],
     "anonymous": false
@@ -817,6 +1106,16 @@
   },
   {
     "type": "error",
+    "name": "BadProtocolFeeBps",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BadSessionName",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "BadSettleSplit",
     "inputs": []
   },
@@ -833,6 +1132,16 @@
   {
     "type": "error",
     "name": "InsufficientBalance",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotProtocolTreasury",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotRecordUsage",
     "inputs": []
   },
   {

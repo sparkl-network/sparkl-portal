@@ -24,7 +24,7 @@ export type NodeInfo = {
   supportsBestEffort: boolean;
   supportsTEE: boolean;
   teeReportHash: `0x${string}`;
-  /** On-chain `metadataURI`: bare HTTP(S) origin, or JSON `{"version","baseUrl",…}` — see `parseMetadataUri`. Probed paths: `/status`, `/identity`, `/v1/models`. */
+  /** On-chain `metadataURI` (MVP: empty at register); legacy rows may have HTTP/JSON — see `parseMetadataUri`. */
   metadataURI: string;
   lifecycle: NodeLifecycle;
 };
@@ -58,11 +58,22 @@ export type EscrowSession = {
   lockedInternal: bigint;
   usageRecorded: bigint;
   paidToProviderInternal: bigint;
+  paidToProtocolInternal: bigint;
   openingInternal: bigint;
   openedAt: bigint;
   settled: boolean;
   inputTokensRecorded: bigint;
   outputTokensRecorded: bigint;
+  /** ModelPriceOracle per-1k input rate snapshotted at `openSession` (0 = legacy session). */
+  inputPricePer1kAtOpen: bigint;
+  /** ModelPriceOracle per-1k output rate snapshotted at `openSession`. */
+  outputPricePer1kAtOpen: bigint;
+  /** `priceOracle.getUsdcPerDot()` at `openSession` (USDC 6-dec per 1e18 internal DOT). */
+  usdcPerDotAtOpen: bigint;
+  /** True when `getEffectivePrice` used the oracle default at open. */
+  pricingUsedDefault: boolean;
+  /** Optional user label from `openSession` (max 128 bytes on-chain). */
+  name: string;
 };
 
 /** On-chain ModelPriceOracle.prices entry (internal 18-dec DOT units per 1k tokens). */

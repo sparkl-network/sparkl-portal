@@ -1,11 +1,11 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { formatUnits, parseUnits } from "viem";
 import { waitForTransactionReceipt } from "viem/actions";
 import type { WalletClient, PublicClient, Address } from "viem";
-import { useAccount, useBalance, useChainId, usePublicClient, useReadContract, useWalletClient } from "wagmi";
+import { useAccount, useChainId, useWalletClient } from "wagmi";
 
 import { settlementEscrowAbi } from "@/lib/abi";
 import { ZERO_ADDRESS, chainRpcUrl, isLocalDevChainRpc, portalPublicRpcUrl } from "@/lib/chains";
@@ -14,7 +14,9 @@ import { depositDot, withdrawDot } from "@/lib/evm/escrow";
 import { formatTxError } from "@/lib/evm/formatTxError";
 import { isWalletRpcTransportError } from "@/lib/evm/isWalletRpcTransportError";
 import { probeInjectedWalletRpc } from "@/lib/evm/probeWalletRpc";
+import { useUserSessionQueries } from "@/lib/session/useUserSessionQueries";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
+import { usePortalPublicClient } from "@/lib/usePortalPublicClient";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,11 +42,17 @@ function escrowWeiToWithdrawField(wei: bigint): string {
   return s || "0";
 }
 
+function formatDotInternal(wei: bigint | undefined, loading: boolean): string {
+  if (loading) return "…";
+  if (wei === undefined) return "—";
+  return formatUnits(wei, 18);
+}
+
 export function UserFundPanel() {
   const queryClient = useQueryClient();
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, connector } = useAccount();
   const chainId = useChainId();
-  const publicClient = usePublicClient();
+  const publicClient = usePortalPublicClient();
   const { data: walletClient } = useWalletClient();
   const { hubConfig } = useHubChainConfig();
 
@@ -68,17 +76,58 @@ export function UserFundPanel() {
   const chainReady = Boolean(isConnected && hubConfig && chainId === hubConfig.chainId && address);
   const escrowUnset = useMemo(() => { if (!hubConfig?.settlementEscrowAddress) return true; return hubConfig.settlementEscrowAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase(); }, [hubConfig]);
 
-  const { data: nativeBalance } = useBalance({ address, query: { enabled: Boolean(chainReady && address) } });
-
-  const { data: balanceRaw, refetch: refetchBalance, isFetching: balanceLoading } = useReadContract({
-    address: hubConfig?.settlementEscrowAddress,
-    abi: settlementEscrowAbi,
-    functionName: "getDotBalances",
-    args: address ? [address] : undefined,
-    query: { enabled: Boolean(chainReady && hubConfig && address && !escrowUnset) },
+  const { data: nativeBalance } = useQuery({
+    queryKey: ["userNativeBalance", hubConfig?.chainId, address],
+    queryFn: async () => {
+      if (!publicClient || !address) return undefined;
+      return publicClient.getBalance({ address });
+    },
+    enabled: Boolean(chainReady && publicClient && address),
   });
 
-  const balanceDisplay = useMemo(() => { if (!chainReady || balanceRaw === undefined || balanceRaw === null || typeof balanceRaw !== "bigint") return "—"; return formatUnits(balanceRaw, 18); }, [balanceRaw, chainReady]);
+  const {
+    data: balanceRaw,
+    refetch: refetchBalance,
+    isFetching: balanceLoading,
+  } = useQuery({
+    queryKey: [
+      "userEscrowBalance",
+      hubConfig?.chainId,
+      hubConfig?.settlementEscrowAddress,
+      address,
+    ],
+    queryFn: async () => {
+      if (!publicClient || !hubConfig?.settlementEscrowAddress || !address) return undefined;
+      return publicClient.readContract({
+        address: hubConfig.settlementEscrowAddress,
+        abi: settlementEscrowAbi,
+        functionName: "getDotBalances",
+        args: [address],
+      });
+    },
+    enabled: Boolean(chainReady && publicClient && hubConfig && address && !escrowUnset),
+  });
+
+  const { sessions, isFetching: sessionsLoading } = useUserSessionQueries();
+
+  const lockedInternal = useMemo(
+    () => sessions.reduce((sum, { s }) => sum + s.lockedInternal, 0n),
+    [sessions],
+  );
+
+  const escrowInternal = useMemo(() => {
+    if (!chainReady || balanceRaw === undefined || balanceRaw === null || typeof balanceRaw !== "bigint") {
+      return undefined;
+    }
+    return balanceRaw;
+  }, [balanceRaw, chainReady]);
+
+  const totalInternal = useMemo(() => {
+    if (escrowInternal === undefined) return undefined;
+    return escrowInternal + lockedInternal;
+  }, [escrowInternal, lockedInternal]);
+
+  const balancesLoading = balanceLoading || sessionsLoading;
 
   const depositParsed = useMemo(() => parseDotAmount(depositAmt), [depositAmt]);
   const withdrawParsed = useMemo(() => parseDotAmount(withdrawAmt), [withdrawAmt]);
@@ -92,7 +141,12 @@ export function UserFundPanel() {
     setWalletRpcProbe(null);
     setWalletRpcProbeOk(null);
     try {
-      const result = await probeInjectedWalletRpc(hubConfig.chainId, { escrowAddress: hubConfig.settlementEscrowAddress, expectedChainRpcUrl: chainRpcUrl(hubConfig) });
+      const result = await probeInjectedWalletRpc(hubConfig.chainId, {
+        escrowAddress: hubConfig.settlementEscrowAddress,
+        expectedChainRpcUrl: chainRpcUrl(hubConfig),
+        connector,
+        connectorName: connector?.name,
+      });
       if (result.ok) {
         setWalletRpcProbeOk(true);
         setWalletRpcProbe(`Wallet chain RPC OK (chain ${result.chainId}, escrow bytecode present). Sends go to ${chainRpcUrl(hubConfig)} only.`);
@@ -124,6 +178,9 @@ export function UserFundPanel() {
     setTxNotice(notice ?? null);
     await refetchBalance();
     await queryClient.invalidateQueries({ queryKey: ["balance"] });
+    await queryClient.invalidateQueries({ queryKey: ["userSessions"] });
+    await queryClient.invalidateQueries({ queryKey: ["userEscrowBalance"] });
+    await queryClient.invalidateQueries({ queryKey: ["sessionsEscrowBalance"] });
     if (action === "deposit") setDepositAmt("");
     else { setWithdrawAmt(""); setWithdrawWeiExact(null); }
   }
@@ -160,12 +217,24 @@ export function UserFundPanel() {
     setTxError(null);
     try {
       if (isDevStub) {
-        const probe = await probeInjectedWalletRpc(hubConfig.chainId, { escrowAddress: hubConfig.settlementEscrowAddress, expectedChainRpcUrl: chainRpcUrl(hubConfig) });
+        const probe = await probeInjectedWalletRpc(hubConfig.chainId, {
+          escrowAddress: hubConfig.settlementEscrowAddress,
+          expectedChainRpcUrl: chainRpcUrl(hubConfig),
+          connector,
+          connectorName: connector?.name,
+        });
         if (!probe.ok) { setTxError(`${probe.message}\n\nDeposit blocked until MetaMask uses the chain RPC from .env.`); if (localAnvilBackend) { const ok = await tryAnvilEscrowFallback("deposit", depositParsed, new Error(probe.message)); if (ok) return; } return; }
       }
       const valueWei = internalToNative(depositParsed, hubConfig.nativeCurrency.decimals);
-      if (nativeBalance && nativeBalance.value < valueWei) { setTxError(`Wallet balance is too low for a ${depositAmt.trim()} DOT deposit. You need at least ${formatUnits(valueWei, hubConfig.nativeCurrency.decimals)} ${hubConfig.nativeCurrency.symbol} in the wallet (plus gas).`); return; }
-      const hash = await depositDot(walletClient, publicClient, hubConfig.settlementEscrowAddress, depositParsed, hubConfig.nativeCurrency.decimals);
+      if (nativeBalance !== undefined && nativeBalance < valueWei) { setTxError(`Wallet balance is too low for a ${depositAmt.trim()} DOT deposit. You need at least ${formatUnits(valueWei, hubConfig.nativeCurrency.decimals)} ${hubConfig.nativeCurrency.symbol} in the wallet (plus gas).`); return; }
+      const hash = await depositDot(
+        walletClient,
+        publicClient,
+        hubConfig.settlementEscrowAddress,
+        depositParsed,
+        hubConfig.nativeCurrency.decimals,
+        connector,
+      );
       await finishEscrowTx("deposit", hash);
     } catch (e) { if (isWalletRpcTransportError(e)) { const ok = await tryAnvilEscrowFallback("deposit", depositParsed, e); if (ok) return; } setTxError(formatTxError(e)); } finally { setTxBusy(false); }
   }
@@ -180,18 +249,52 @@ export function UserFundPanel() {
       let amountInternal = withdrawWeiExact ?? withdrawParsed;
       if (balanceRaw !== undefined && balanceRaw !== null && typeof balanceRaw === "bigint" && amountInternal > balanceRaw) amountInternal = balanceRaw;
 
-      if (isDevStub) { const probe = await probeInjectedWalletRpc(hubConfig.chainId, { escrowAddress: hubConfig.settlementEscrowAddress, expectedChainRpcUrl: chainRpcUrl(hubConfig) }); if (!probe.ok) { setTxError(`${probe.message}\n\nWithdraw blocked until MetaMask uses the chain RPC from .env.`); if (localAnvilBackend) { const ok = await tryAnvilEscrowFallback("withdraw", amountInternal, new Error(probe.message)); if (ok) return; } return; } }
-      const hash = await withdrawDot(walletClient, publicClient, hubConfig.settlementEscrowAddress, amountInternal);
+      if (isDevStub) { const probe = await probeInjectedWalletRpc(hubConfig.chainId, { escrowAddress: hubConfig.settlementEscrowAddress, expectedChainRpcUrl: chainRpcUrl(hubConfig), connector, connectorName: connector?.name }); if (!probe.ok) { setTxError(`${probe.message}\n\nWithdraw blocked until MetaMask uses the chain RPC from .env.`); if (localAnvilBackend) { const ok = await tryAnvilEscrowFallback("withdraw", amountInternal, new Error(probe.message)); if (ok) return; } return; } }
+      const hash = await withdrawDot(
+        walletClient,
+        publicClient,
+        hubConfig.settlementEscrowAddress,
+        amountInternal,
+        connector,
+      );
       await finishEscrowTx("withdraw", hash);
     } catch (e) { if (isWalletRpcTransportError(e)) { let amountInternal = withdrawWeiExact ?? withdrawParsed; if (balanceRaw !== undefined && balanceRaw !== null && typeof balanceRaw === "bigint" && amountInternal > balanceRaw) amountInternal = balanceRaw; const ok = await tryAnvilEscrowFallback("withdraw", amountInternal, e); if (ok) return; } setTxError(formatTxError(e)); } finally { setTxBusy(false); }
   }
 
   return (
-    <Card className="w-full lg:w-80 xl:w-96 flex-shrink-0 h-fit sticky top-[calc(var(--header-height)+1rem)]">
+    <Card className="w-full h-fit lg:sticky lg:top-[calc(var(--header-height)+1rem)]">
       <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Escrow balance</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        {/* Balance display */}
-        <div><code className="font-mono">{balanceLoading ? "&hellip;" : balanceDisplay}</code><span className="text-sm text-muted-foreground ml-1">DOT</span></div>
+        {/* Balance breakdown */}
+        <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2.5 text-sm">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">Total</span>
+            <span className="font-mono tabular-nums">
+              {formatDotInternal(totalInternal, balancesLoading)}
+              <span className="text-muted-foreground ml-1 text-xs">DOT</span>
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">Locked</span>
+            <span className="font-mono tabular-nums">
+              {formatDotInternal(
+                chainReady && !escrowUnset ? lockedInternal : undefined,
+                balancesLoading,
+              )}
+              <span className="text-muted-foreground ml-1 text-xs">DOT</span>
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">Escrow</span>
+            <span className="font-mono tabular-nums">
+              {formatDotInternal(escrowInternal, balancesLoading)}
+              <span className="text-muted-foreground ml-1 text-xs">DOT</span>
+            </span>
+          </div>
+          <p className="text-[11px] text-muted-foreground pt-0.5 leading-snug">
+            Total = Escrow + Locked in sessions.
+          </p>
+        </div>
 
         {/* Tabs */}
         <Tabs value={activeTab.id} onValueChange={(v) => { const tab = FUND_TABS.find(t => t.id === v); if (tab) setActiveTab(tab); }}>

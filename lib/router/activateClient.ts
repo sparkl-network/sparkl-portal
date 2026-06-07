@@ -1,9 +1,12 @@
-import type { Address, PublicClient, WalletClient } from "viem";
+import type { Hex, PublicClient, WalletClient } from "viem";
+import type { Connector } from "wagmi";
 
+import { getConnectedInjectedProvider } from "@/lib/evm/injectedProvider";
 import {
   buildActivateMessage,
   type RouterActivateResponse,
 } from "@/lib/router/activate";
+import { isWalletTransportError } from "@/lib/evm/escrow";
 
 export class RouterActivateError extends Error {
   constructor(
@@ -15,22 +18,59 @@ export class RouterActivateError extends Error {
   }
 }
 
+function extractActivateError(body: unknown, status: number): string {
+  if (typeof body === "object" && body !== null) {
+    const err = (body as { error?: unknown }).error;
+    if (typeof err === "string" && err.length > 0) return err;
+    if (typeof err === "object" && err !== null && "message" in err) {
+      const msg = (err as { message: unknown }).message;
+      if (typeof msg === "string" && msg.length > 0) return msg;
+    }
+  }
+  if (typeof body === "string" && body.length > 0) return body;
+  return `Activate failed (${status})`;
+}
+
+async function signActivateMessage(
+  walletClient: WalletClient,
+  message: string,
+  connector?: Connector,
+): Promise<Hex> {
+  const account = walletClient.account;
+  if (!account) throw new RouterActivateError("Wallet account unavailable");
+
+  try {
+    return await walletClient.signMessage({
+      account: account as unknown as `0x${string}`,
+      message,
+    });
+  } catch (err) {
+    if (!isWalletTransportError(err)) throw err;
+    const eth = await getConnectedInjectedProvider(connector);
+    if (!eth?.request) throw err;
+    const sig = await eth.request({
+      method: "personal_sign",
+      params: [message, account.address],
+    });
+    if (typeof sig !== "string" || !sig.startsWith("0x")) {
+      throw new RouterActivateError(`Wallet returned unexpected signature: ${String(sig)}`);
+    }
+    return sig as Hex;
+  }
+}
+
 /** Wallet-signed activate via portal proxy → sparkl-router. */
 export async function activateSessionViaPortal(params: {
   walletClient: WalletClient;
   publicClient: PublicClient;
   sessionId: bigint;
+  connector?: Connector;
 }): Promise<RouterActivateResponse> {
-  const { walletClient, publicClient, sessionId } = params;
-  const account = walletClient.account;
-  if (!account) throw new RouterActivateError("Wallet account unavailable");
+  const { walletClient, publicClient, sessionId, connector } = params;
 
   const blockNumber = await publicClient.getBlockNumber();
   const message = buildActivateMessage(sessionId, blockNumber);
-  const signature = await walletClient.signMessage({
-    account: account as unknown as `0x${string}`,
-    message,
-  });
+  const signature = await signActivateMessage(walletClient, message, connector);
 
   const res = await fetch("/api/router-activate", {
     method: "POST",
@@ -38,7 +78,7 @@ export async function activateSessionViaPortal(params: {
     body: JSON.stringify({
       sessionId: sessionId.toString(),
       signature,
-      blockNumber: blockNumber.toString(),
+      blockNumber: Number(blockNumber),
       message,
     }),
   });
@@ -52,14 +92,7 @@ export async function activateSessionViaPortal(params: {
   }
 
   if (!res.ok) {
-    const errMsg =
-      typeof body === "object" &&
-      body !== null &&
-      "error" in body &&
-      typeof (body as { error: unknown }).error === "string"
-        ? (body as { error: string }).error
-        : `Activate failed (${res.status})`;
-    throw new RouterActivateError(errMsg, res.status);
+    throw new RouterActivateError(extractActivateError(body, res.status), res.status);
   }
 
   if (

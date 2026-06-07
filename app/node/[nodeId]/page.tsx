@@ -3,18 +3,36 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import NextLink from "next/link";
 import { useParams } from "next/navigation";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, type ReactNode } from "react";
 import { getAddress, isAddress, zeroHash, type Address, type Hex, type WalletClient, type PublicClient } from "viem";
 import { waitForTransactionReceipt } from "viem/actions";
-import { useAccount, useChainId, usePublicClient, useWalletClient } from "wagmi";
+import { useAccount, useChainId, useWalletClient } from "wagmi";
+import { usePortalPublicClient } from "@/lib/usePortalPublicClient";
 
 import { ZERO_ADDRESS } from "@/lib/chains";
-import { readOpenSessionCount } from "@/lib/evm/escrow";
+import {
+  countOpenEscrowSessionsByModelForNode,
+  readOpenSessionCount,
+} from "@/lib/evm/escrow";
+import { modelNameToId } from "@/lib/evm/modelOracle";
 import { formatTxError } from "@/lib/evm/formatTxError";
-import { chillNode, getNodeOperator, getNode, lifecycleLabel, markDefunct, setNodeActive, setNodeMetadata, setNodePayout } from "@/lib/evm/registry";
+import { chillNode, getNodeOperator, getNode, lifecycleLabel, markDefunct, setNodeActive, setNodePayout } from "@/lib/evm/registry";
 import { peerIdMultihashHex } from "@/lib/nodeId";
 import { useResolvedNodeRoute } from "@/lib/useResolvedNodeRoute";
-import { metadataUriToBaseUrl, normalizeNodeBaseUrl } from "@/lib/nodeBaseUrl";
+import { FormattedDateTime } from "@/components/FormattedDateTime";
+import { OpenSessionModal } from "@/components/sessions/OpenSessionModal";
+import { RouterTunnelBadge } from "@/components/router/RouterTunnelBadge";
+import { settlementEscrowAbi } from "@/lib/abi";
+import { providersForNode } from "@/lib/router/merge";
+import { formatCapacityRatio } from "@/lib/router/telemetry";
+import {
+  useRouterCatalogProviders,
+  useRouterNodeStatus,
+  useRouterNodesStatus,
+} from "@/lib/router/useRouterData";
+import { useRouterTelemetry } from "@/lib/router/useRouterTelemetry";
+import { routerBaseUrl } from "@/lib/router/activate";
+import type { ProviderOffering } from "@/lib/router/types";
 import { NodeInfo, NodeLifecycle } from "@/lib/types";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -41,6 +59,34 @@ function parsePayout(raw: string): Address | null {
   }
 }
 
+function operatorPageHref(operator: Address): string {
+  return `/operator/${encodeURIComponent(getAddress(operator))}`;
+}
+
+function NodeDetailRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid gap-1 py-3 sm:grid-cols-[minmax(11rem,14rem)_1fr] sm:gap-x-6 sm:items-start border-b border-border last:border-0 first:pt-0 last:pb-0">
+      <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
+      <dd className="text-sm min-w-0">{children}</dd>
+    </div>
+  );
+}
+
+function StatusDot({ active }: { active: boolean }) {
+  return (
+    <span
+      className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${active ? "bg-green-500" : "bg-red-500"}`}
+      aria-hidden
+    />
+  );
+}
+
 type LoadedNodeDetail = {
   info: NodeInfo;
   operator: Address;
@@ -61,7 +107,6 @@ function NodeOperatorControls({ nodeId, detail, registryAddress, settlementEscro
 }) {
   const { address: connectedAddress } = useAccount();
   const [newPayoutInput, setNewPayoutInput] = useState("");
-  const [newBaseUrlInput, setNewBaseUrlInput] = useState(() => metadataUriToBaseUrl(detail.info.metadataURI ?? "") ?? detail.info.metadataURI ?? "");
   const [txBusy, setTxBusy] = useState(false);
   const [txError, setTxError] = useState<string | null>(null);
   const [lastTxHash, setLastTxHash] = useState<string | null>(null);
@@ -88,15 +133,6 @@ function NodeOperatorControls({ nodeId, detail, registryAddress, settlementEscro
   const escrowConfigured = settlementEscrowAddress.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
   const canChill = detail.info.lifecycle === NodeLifecycle.Active;
   const canMarkDefunct = detail.info.lifecycle === NodeLifecycle.Chilled && escrowConfigured && detail.openSessionCount === 0n;
-
-  const baseUrlSaveDisabled = useMemo(() => {
-    const next = normalizeNodeBaseUrl(newBaseUrlInput.trim());
-    const currentRaw = detail.info.metadataURI ?? "";
-    const current = metadataUriToBaseUrl(currentRaw) ?? normalizeNodeBaseUrl(currentRaw);
-    if (!next) return true;
-    if (current && next === current) return true;
-    return false;
-  }, [newBaseUrlInput, detail.info.metadataURI]);
 
   const runTx = useCallback(async (send: () => Promise<`0x${string}`>, onSuccess?: () => void | Promise<void>) => {
     setTxBusy(true);
@@ -137,19 +173,6 @@ function NodeOperatorControls({ nodeId, detail, registryAddress, settlementEscro
     setNewPayoutInput("");
   }
 
-  async function handleBaseUrlUpdate() {
-    const base = normalizeNodeBaseUrl(newBaseUrlInput);
-    if (!base) {
-      setTxError("Enter a valid http(s) node base URL (host, optional port — used for /status, /identity, /v1/models).");
-      return;
-    }
-    const currentRaw = detail.info.metadataURI ?? "";
-    const currentBase = metadataUriToBaseUrl(currentRaw) ?? normalizeNodeBaseUrl(currentRaw);
-    if (currentBase && base === currentBase) return;
-    setTxError(null);
-    await runTx(() => setNodeMetadata(walletClient, registryAddress, nodeId, base));
-  }
-
   async function confirmChill() { setChillModalOpen(false); await runTx(() => chillNode(walletClient, publicClient, registryAddress, nodeId)); }
   async function confirmMarkDefunct() { setDefunctModalOpen(false); await runTx(() => markDefunct(walletClient, publicClient, registryAddress, settlementEscrowAddress, nodeId)); }
 
@@ -164,28 +187,28 @@ function NodeOperatorControls({ nodeId, detail, registryAddress, settlementEscro
       )}
 
       {/* Chill dialog */}
-      <Dialog open={chillModalOpen} onOpenChange={(o) => !o && (txBusy || closeChillModal())}>
+      <Dialog open={chillModalOpen} onOpenChange={(o) => !o && !txBusy && setChillModalOpen(false)}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Chill this node?</DialogTitle></DialogHeader>
           <DialogDescription className="space-y-2">
             <p>Chilling sets lifecycle to Chilled and clears listing (no new escrow opens for this node id). Existing sessions can still record usage and settle.</p>
             <div className="flex flex-col gap-1">
               <Label className="text-xs text-muted-foreground">On-chain operator</Label>
-              <code className="break-all text-xs font-mono">{detail.operator}</code>
+              <NextLink href={operatorPageHref(detail.operator)} className="break-all text-xs font-mono underline underline-offset-4 hover:text-accent"><code>{detail.operator}</code></NextLink>
             </div>
             {pendingAhead > 0 && (
               <Alert variant="warning"><AlertTitle>Pending transactions</AlertTitle><AlertDescription>You have pending transactions—consider waiting for them to confirm before chilling.</AlertDescription></Alert>
             )}
           </DialogDescription>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="secondary" disabled={txBusy} onClick={closeChillModal}>Cancel</Button>
+            <Button variant="secondary" disabled={txBusy} onClick={() => setChillModalOpen(false)}>Cancel</Button>
             <Button variant="destructive" disabled={txBusy} onClick={() => void confirmChill()}>Chill node</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Defunct dialog */}
-      <Dialog open={defunctModalOpen} onOpenChange={(o) => !o && (txBusy || closeDefunctModal())}>
+      <Dialog open={defunctModalOpen} onOpenChange={(o) => !o && !txBusy && setDefunctModalOpen(false)}>
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Mark node defunct?</DialogTitle></DialogHeader>
           <DialogDescription className="space-y-2">
@@ -198,7 +221,7 @@ function NodeOperatorControls({ nodeId, detail, registryAddress, settlementEscro
             )}
           </DialogDescription>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="secondary" disabled={txBusy} onClick={closeDefunctModal}>Cancel</Button>
+            <Button variant="secondary" disabled={txBusy} onClick={() => setDefunctModalOpen(false)}>Cancel</Button>
             <Button variant="destructive" disabled={txBusy || !canMarkDefunct} onClick={() => void confirmMarkDefunct()}>Mark defunct</Button>
           </DialogFooter>
         </DialogContent>
@@ -234,14 +257,6 @@ function NodeOperatorControls({ nodeId, detail, registryAddress, settlementEscro
           <Button variant="default" disabled={manageDisabled || !parsePayout(newPayoutInput) || parsePayout(newPayoutInput)?.toLowerCase() === detail.info.payout.toLowerCase()} onClick={() => void handlePayoutUpdate()}>{txBusy ? "Updating..." : "Update payout"}</Button>
         </div>
 
-        {/* Base URL update */}
-        <div className="space-y-2 pt-2">
-          <Label>Node base URL</Label>
-          <p className="text-xs text-muted-foreground">HTTP(S) origin (or JSON metadata with baseUrl) stored on-chain; your process should serve /status, /identity, /v1/models.</p>
-          <Input placeholder="https://node.example.com:8787" value={newBaseUrlInput} onChange={(e) => setNewBaseUrlInput(e.target.value)} disabled={manageDisabled} />
-          <Button variant="default" disabled={manageDisabled || baseUrlSaveDisabled} onClick={() => void handleBaseUrlUpdate()}>{txBusy ? "Updating..." : "Update base URL"}</Button>
-        </div>
-
         {/* Rundown */}
         <div className="space-y-2 pt-4 border-t">
           <Label className="text-sm font-medium text-muted-foreground">Rundown (chill → defunct)</Label>
@@ -263,18 +278,19 @@ function NodeOperatorControls({ nodeId, detail, registryAddress, settlementEscro
   );
 }
 
-function closeChillModal() { /* outer scope */ }
-function closeDefunctModal() { /* outer scope */ }
-
 export default function NodeDetailPage() {
   const params = useParams();
   const queryClient = useQueryClient();
   const raw = typeof params.nodeId === "string" ? params.nodeId : Array.isArray(params.nodeId) ? params.nodeId[0] : "";
+  const [openSessionTarget, setOpenSessionTarget] = useState<ProviderOffering | null>(null);
 
   const { parsed: parsedRoute, nodeId: nodeIdFromRoute, pathSegmentForLinks } = useResolvedNodeRoute(raw);
   const peerIdDisplay = parsedRoute.peerIdDisplay;
 
-  const multihashHex = useMemo(() => peerIdDisplay && parsedRoute.kind === "peer_id" ? peerIdMultihashHex(peerIdDisplay) : null, [peerIdDisplay, parsedRoute.kind]);
+  const multihashHex = useMemo(
+    () => (peerIdDisplay && parsedRoute.kind === "peer_id" ? peerIdMultihashHex(peerIdDisplay) : null),
+    [peerIdDisplay, parsedRoute.kind],
+  );
 
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -282,11 +298,38 @@ export default function NodeDetailPage() {
 
   const registryUnset = useMemo(() => { if (!hubConfig?.operatorRegistryAddress) return true; return hubConfig.operatorRegistryAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase(); }, [hubConfig]);
 
-  const publicClient = usePublicClient({ chainId: hubConfig?.chainId });
+  const publicClient = usePortalPublicClient();
   const { data: walletClient } = useWalletClient({ chainId: hubConfig?.chainId });
 
-  const chainReady = Boolean(hubConfig && chainId === hubConfig.chainId && isConnected);
+  const chainReady = Boolean(
+    hubConfig && chainId === hubConfig.chainId && isConnected && address && walletClient && publicClient,
+  );
   const detailQueryReady = Boolean(hubConfig && nodeIdFromRoute && !registryUnset && !configError);
+
+  const escrowUnset = useMemo(() => {
+    if (!hubConfig?.settlementEscrowAddress) return true;
+    return hubConfig.settlementEscrowAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase();
+  }, [hubConfig]);
+
+  const { data: dotBalance = 0n } = useQuery({
+    queryKey: [
+      "nodeOpenSessionBalance",
+      hubConfig?.chainId,
+      hubConfig?.settlementEscrowAddress,
+      address,
+    ],
+    queryFn: async () => {
+      if (!publicClient || !hubConfig?.settlementEscrowAddress || !address) return 0n;
+      const rawBal = await publicClient.readContract({
+        address: hubConfig.settlementEscrowAddress,
+        abi: settlementEscrowAbi,
+        functionName: "getDotBalances",
+        args: [address],
+      });
+      return rawBal as bigint;
+    },
+    enabled: Boolean(chainReady && !escrowUnset),
+  });
 
   const { data: detail, error: detailError, isLoading: detailLoading, refetch: refetchDetail } = useQuery({
     queryKey: ["nodeDetail", hubConfig?.chainId, hubConfig?.operatorRegistryAddress, nodeIdFromRoute],
@@ -305,6 +348,66 @@ export default function NodeDetailPage() {
   const controlsDisabled = !chainReady || registryUnset || !walletClient || !hubConfig || detailLoading;
   const detailErrMsg = detailError instanceof Error ? detailError.message : "Could not load node";
 
+  const routerConfigured = Boolean(routerBaseUrl());
+  const canOpenSessions = Boolean(chainReady && !escrowUnset && routerConfigured);
+  const { statusByNodeId } = useRouterNodesStatus();
+  const { status: routerStatus, isLoading: routerStatusLoading } = useRouterNodeStatus(
+    nodeIdFromRoute,
+    statusByNodeId,
+  );
+  const { data: catalogData } = useRouterCatalogProviders();
+  const catalogProviders = catalogData?.data ?? [];
+  const telemetry = useRouterTelemetry({
+    enabled: routerConfigured,
+    initialProviders: catalogProviders,
+    initialNodes: undefined,
+  });
+  const liveProviders = telemetry.providers ?? catalogProviders;
+  const nodeProviders = useMemo(
+    () => providersForNode(liveProviders, nodeIdFromRoute ?? undefined),
+    [liveProviders, nodeIdFromRoute],
+  );
+
+  const {
+    data: openSessionsByModel,
+    isFetching: openSessionsByModelFetching,
+  } = useQuery({
+    queryKey: [
+      "nodeOpenSessionsByModel",
+      hubConfig?.chainId,
+      hubConfig?.settlementEscrowAddress,
+      nodeIdFromRoute,
+    ],
+    queryFn: async () => {
+      if (!publicClient || !hubConfig || !nodeIdFromRoute) {
+        throw new Error("Missing client, config, or node ID");
+      }
+      return countOpenEscrowSessionsByModelForNode(
+        publicClient,
+        hubConfig.settlementEscrowAddress,
+        nodeIdFromRoute,
+      );
+    },
+    enabled: Boolean(
+      publicClient && hubConfig && nodeIdFromRoute && !escrowUnset && !configError,
+    ),
+    staleTime: 15_000,
+  });
+
+  const listingActiveButTunnelDown = Boolean(
+    detail?.isRegistered &&
+      detail.info.active &&
+      detail.info.lifecycle === NodeLifecycle.Active &&
+      routerStatus &&
+      routerStatus.status !== "online",
+  );
+
+  const displayPeerId = peerIdDisplay;
+  const displayMultihash = useMemo(
+    () => multihashHex ?? (displayPeerId ? peerIdMultihashHex(displayPeerId) : null),
+    [multihashHex, displayPeerId],
+  );
+
   return (
     <div className="px-3 py-3 w-full space-y-4">
       {/* Back link */}
@@ -320,10 +423,10 @@ export default function NodeDetailPage() {
       {/* Node identity display */}
       {nodeIdFromRoute && (
         <div className="space-y-1">
-          {peerIdDisplay && (<>
+          {displayPeerId && (<>
             <Label className="text-sm font-medium text-muted-foreground">Peer ID (libp2p)</Label>
-            <code className="break-all text-sm">{peerIdDisplay}</code>
-            {multihashHex && (<><div className="h-1" /><Label className="text-xs text-muted-foreground">Decoded multihash (hex)</Label><code className="break-all text-xs font-mono text-muted-foreground">{multihashHex}</code></>)}
+            <code className="break-all text-sm">{displayPeerId}</code>
+            {displayMultihash && (<><div className="h-1" /><Label className="text-xs text-muted-foreground">Decoded multihash (hex)</Label><code className="break-all text-xs font-mono text-muted-foreground">{displayMultihash}</code></>)}
           </>)}
           <Label className="text-sm font-medium text-muted-foreground mt-2 block">On-chain node id (bytes32)</Label>
           <code className="break-all text-xs font-mono text-muted-foreground">{nodeIdFromRoute}</code>
@@ -345,39 +448,261 @@ export default function NodeDetailPage() {
 
       {/* Registered detail */}
       {nodeIdFromRoute && detailQueryReady && !detailLoading && !detailError && detail?.isRegistered && (<>
-        {!isOperator && detail && (<Alert variant="default" className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800"><AlertTitle>Read-only</AlertTitle><AlertDescription>Connect the operator wallet ({detail.operator}) to change payout, node base URL, or listing status.</AlertDescription></Alert>)}
+        {!isOperator && detail && (<Alert variant="default" className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800"><AlertTitle>Read-only</AlertTitle><AlertDescription>Connect the operator wallet (<NextLink href={operatorPageHref(detail.operator)} className="font-mono underline underline-offset-4 hover:text-accent">{detail.operator}</NextLink>) to change payout or listing status.</AlertDescription></Alert>)}
 
         {/* Quick links */}
         <div className="flex gap-2 flex-wrap">
           <Badge variant="secondary" className="cursor-pointer hover:bg-accent/80"><NextLink href="/node/register" className="text-sm">Register another</NextLink></Badge>
           <span className="text-xs text-muted-foreground self-center">·</span>
-          <Badge variant="secondary" className="cursor-pointer hover:bg-accent/80"><NextLink href={`/node/${encodeURIComponent(pathSegmentForLinks)}/sessions`} className="text-sm">Sessions</NextLink></Badge>
+          <Badge variant="secondary" className="cursor-pointer hover:bg-accent/80"><NextLink href={`/node/${encodeURIComponent(pathSegmentForLinks)}/session`} className="text-sm">Sessions</NextLink></Badge>
         </div>
 
-        {/* Data cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
-          <Card><CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Operator</CardTitle></CardHeader><CardContent><code className="break-all text-sm">{detail.operator}</code></CardContent></Card>
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle className="text-base">Node details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl>
+              <NodeDetailRow label="Moniker">
+                {routerStatus?.moniker?.trim() ? (
+                  <span>{routerStatus.moniker}</span>
+                ) : (
+                  <span className="text-muted-foreground text-sm">
+                    — Set in sparkl-solo <code className="text-xs font-mono">[node].moniker</code>; shown here when the router tunnel is online.
+                  </span>
+                )}
+              </NodeDetailRow>
+              <NodeDetailRow label="Operator">
+                <NextLink
+                  href={operatorPageHref(detail.operator)}
+                  className="break-all font-mono underline underline-offset-4 hover:text-accent transition-colors"
+                >
+                  <code>{detail.operator}</code>
+                </NextLink>
+              </NodeDetailRow>
+              <NodeDetailRow label="Lifecycle">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`h-2 w-2 rounded-full flex-shrink-0 ${
+                      detail.info.lifecycle === NodeLifecycle.Active
+                        ? "bg-green-500"
+                        : detail.info.lifecycle === NodeLifecycle.Chilled
+                          ? "bg-yellow-500"
+                          : "bg-gray-400"
+                    }`}
+                  />
+                  <span>{lifecycleLabel(detail.info.lifecycle)}</span>
+                </div>
+              </NodeDetailRow>
+              <NodeDetailRow label="Open escrow sessions (this node)">
+                <span className="font-mono tabular-nums">
+                  {hubConfig!.settlementEscrowAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase()
+                    ? "Escrow unset (env)"
+                    : detail.openSessionCount.toString()}
+                </span>
+              </NodeDetailRow>
+              <NodeDetailRow label="Active status">
+                <div className="flex items-center gap-2">
+                  <StatusDot active={detail.info.active} />
+                  <span>{detail.info.active ? "Active" : "Inactive"}</span>
+                </div>
+              </NodeDetailRow>
+              <NodeDetailRow label="Payout address">
+                <code className="break-all font-mono text-sm">{detail.info.payout}</code>
+              </NodeDetailRow>
+              <NodeDetailRow label="Fee (basis points)">
+                <span className="font-mono tabular-nums">{detail.info.feeBps}</span>
+              </NodeDetailRow>
+              <NodeDetailRow label="Supports Best Effort">
+                <span>{detail.info.supportsBestEffort ? "Yes" : "No"}</span>
+              </NodeDetailRow>
+              <NodeDetailRow label="Supports TEE">
+                <span>{detail.info.supportsTEE ? "Yes" : "No"}</span>
+              </NodeDetailRow>
+              <NodeDetailRow label="TEE proof status">
+                {teeProofSubmitted(detail.info.teeReportHash) ? (
+                  <div className="space-y-1">
+                    <span>Submitted</span>
+                    <code className="block break-all text-xs font-mono text-muted-foreground">
+                      {detail.info.teeReportHash}
+                    </code>
+                  </div>
+                ) : (
+                  <span>Not submitted</span>
+                )}
+              </NodeDetailRow>
+            </dl>
+          </CardContent>
+        </Card>
 
-          <Card><CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Lifecycle</CardTitle></CardHeader><CardContent><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full flex-shrink-0 ${detail.info.lifecycle === NodeLifecycle.Active ? "bg-green-500" : detail.info.lifecycle === NodeLifecycle.Chilled ? "bg-yellow-500" : "bg-gray-400"}`} /><span>{lifecycleLabel(detail.info.lifecycle)}</span></div></CardContent></Card>
+        {listingActiveButTunnelDown && (
+          <Alert variant="warning">
+            <AlertTitle>Listed on-chain, tunnel not healthy</AlertTitle>
+            <AlertDescription>
+              This node is active in ProviderRegistry but the router reports tunnel status &quot;{routerStatus?.status}&quot;.
+              Check sparkl-solo is running and connected to the router.
+            </AlertDescription>
+          </Alert>
+        )}
 
-          <Card><CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Open escrow sessions (this node)</CardTitle></CardHeader><CardContent><code className="break-all text-sm">{hubConfig!.settlementEscrowAddress.toLowerCase() === ZERO_ADDRESS.toLowerCase() ? "Escrow unset (env)" : detail.openSessionCount.toString()}</code></CardContent></Card>
+        {routerConfigured && (
+          <Card className="w-full">
+            <CardHeader>
+              <CardTitle className="text-base">Router tunnel</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-0">
+              <dl>
+                <NodeDetailRow label="Tunnel status">
+                  {routerStatusLoading && !routerStatus ? (
+                    <Skeleton className="h-6 w-24" />
+                  ) : (
+                    <RouterTunnelBadge status={routerStatus?.status ?? "offline"} detail={routerStatus} />
+                  )}
+                </NodeDetailRow>
+                <NodeDetailRow label="Last pong">
+                  <FormattedDateTime
+                    value={routerStatus?.last_pong_at}
+                    className="text-sm break-all"
+                  />
+                </NodeDetailRow>
+                <NodeDetailRow label="Connected at">
+                  <FormattedDateTime
+                    value={routerStatus?.connected_at}
+                    className="text-sm break-all"
+                  />
+                </NodeDetailRow>
+                <NodeDetailRow label="Uptime">
+                  <span className="font-mono tabular-nums">
+                    {routerStatus?.uptime_secs != null ? `${routerStatus.uptime_secs}s` : "—"}
+                  </span>
+                </NodeDetailRow>
+                <NodeDetailRow label="In-flight requests">
+                  <span className="font-mono tabular-nums">{routerStatus?.in_flight_requests ?? 0}</span>
+                </NodeDetailRow>
+                <NodeDetailRow label="Models cached">
+                  <span className="font-mono tabular-nums">{routerStatus?.model_count ?? 0}</span>
+                </NodeDetailRow>
+              </dl>
 
-          <Card><CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Active status</CardTitle></CardHeader><CardContent><div className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full flex-shrink-0 ${detail.info.active ? "bg-green-500" : "bg-red-500"}`} /><span>{detail.info.active ? "Active" : "Inactive"}</span></div></CardContent></Card>
-
-          <Card><CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Payout address</CardTitle></CardHeader><CardContent><code className="break-all text-sm">{detail.info.payout}</code></CardContent></Card>
-          <Card><CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Fee (basis points)</CardTitle></CardHeader><CardContent><code>{detail.info.feeBps}</code></CardContent></Card>
-
-          <Card className="sm:col-span-2 lg:col-span-1"><CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Node base URL</CardTitle></CardHeader><CardContent><code className="break-all text-xs">{detail.info.metadataURI || "—"}</code></CardContent></Card>
-
-          <Card><CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Supports Best Effort</CardTitle></CardHeader><CardContent><span>{detail.info.supportsBestEffort ? "Yes" : "No"}</span></CardContent></Card>
-          <Card><CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Supports TEE</CardTitle></CardHeader><CardContent><span>{detail.info.supportsTEE ? "Yes" : "No"}</span></CardContent></Card>
-
-          <Card><CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">TEE proof status</CardTitle></CardHeader><CardContent className="space-y-1">{teeProofSubmitted(detail.info.teeReportHash) ? (<><span>{teeProofSubmitted(detail.info.teeReportHash) ? "Submitted" : "Not submitted"}</span><code className="break-all text-xs font-mono text-muted-foreground">{detail.info.teeReportHash}</code></>) : <span>Not submitted</span>}</CardContent></Card>
-        </div>
+              <div className="border-t border-border pt-4 mt-1">
+                <p className="text-sm font-medium text-muted-foreground mb-3">Models on router</p>
+                {nodeProviders.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No catalog offerings for this node.</p>
+                ) : (
+                  <div className="relative w-full overflow-auto rounded-lg border">
+                    <table className="w-full caption-bottom text-sm">
+                      <thead className="[&_tr]:border-b">
+                        <tr>
+                          <th className="h-10 px-3 text-left font-medium text-muted-foreground">Model</th>
+                          <th className="h-10 px-3 text-left font-medium text-muted-foreground">Tunnel</th>
+                          <th className="h-10 px-3 text-right font-medium text-muted-foreground">Load</th>
+                          <th className="h-10 px-3 text-right font-medium text-muted-foreground" title="Open SettlementEscrow sessions for this node and model">
+                            Open sessions
+                          </th>
+                          <th className="h-10 px-3 text-left font-medium text-muted-foreground">Features</th>
+                          <th className="h-10 px-3 text-right font-medium text-muted-foreground">Session</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {nodeProviders.map((p) => {
+                          const tunnelOnline = p.tunnel_status === "online";
+                          const listingOk =
+                            detail?.info.active &&
+                            detail.info.lifecycle === NodeLifecycle.Active;
+                          const openDisabled = !canOpenSessions || !tunnelOnline || !listingOk;
+                          const openTitle = !isConnected
+                            ? "Connect wallet on hub chain"
+                            : !chainReady
+                              ? "Switch to hub chain"
+                              : escrowUnset
+                                ? "Escrow not configured"
+                                : !routerConfigured
+                                  ? "Router not configured"
+                                  : !listingOk
+                                    ? "Node not actively listed"
+                                    : !tunnelOnline
+                                      ? "Tunnel not online"
+                                      : "Open escrow session for this model";
+                          const modelIdHex = modelNameToId(p.model_id).toLowerCase();
+                          const openEscrowCount = openSessionsByModel?.get(modelIdHex) ?? 0;
+                          return (
+                          <tr key={`${p.model_id}-${p.node_id}`} className="border-b">
+                            <td className="p-3 font-mono text-xs break-all">{p.model_id}</td>
+                            <td className="p-3">
+                              <RouterTunnelBadge status={p.tunnel_status as "online" | "degraded" | "offline"} compact />
+                            </td>
+                            <td className="p-3 text-right tabular-nums font-mono">
+                              {formatCapacityRatio(p.active_requests, p.concurrency)}
+                              {p.queued_requests > 0 ? (
+                                <span className="text-amber-600 dark:text-amber-400 text-xs ml-1">
+                                  +{p.queued_requests}q
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="p-3 text-right tabular-nums font-mono text-xs">
+                              {escrowUnset ? (
+                                "—"
+                              ) : openSessionsByModelFetching && !openSessionsByModel ? (
+                                "…"
+                              ) : (
+                                openEscrowCount
+                              )}
+                            </td>
+                            <td className="p-3 text-xs text-muted-foreground">
+                              {Object.keys(p.features ?? {}).length > 0
+                                ? Object.entries(p.features)
+                                    .map(([k, v]) => `${k}${v ? `: ${v}` : ""}`)
+                                    .join(" · ")
+                                : "—"}
+                            </td>
+                            <td className="p-3 text-right">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                disabled={openDisabled}
+                                title={openTitle}
+                                onClick={() => setOpenSessionTarget(p)}
+                              >
+                                Open session
+                              </Button>
+                            </td>
+                          </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Operator controls */}
         {isOperator && walletClient && publicClient && nodeIdFromRoute && hubConfig && (
-          <NodeOperatorControls key={[nodeIdFromRoute, detail.info.metadataURI, detail.info.payout, detail.info.active ? "1" : "0", String(detail.info.lifecycle), detail.openSessionCount.toString()].join(":")} nodeId={nodeIdFromRoute} detail={detail as LoadedNodeDetail} registryAddress={hubConfig.operatorRegistryAddress} settlementEscrowAddress={hubConfig.settlementEscrowAddress} controlsDisabled={controlsDisabled} walletClient={walletClient} publicClient={publicClient} queryClient={queryClient} refetchDetail={refetchDetail} />
+          <NodeOperatorControls key={[nodeIdFromRoute, detail.info.payout, detail.info.active ? "1" : "0", String(detail.info.lifecycle), detail.openSessionCount.toString()].join(":")} nodeId={nodeIdFromRoute} detail={detail as LoadedNodeDetail} registryAddress={hubConfig.operatorRegistryAddress} settlementEscrowAddress={hubConfig.settlementEscrowAddress} controlsDisabled={controlsDisabled} walletClient={walletClient} publicClient={publicClient} queryClient={queryClient} refetchDetail={refetchDetail} />
+        )}
+
+        {openSessionTarget && walletClient && publicClient && nodeIdFromRoute && hubConfig && (
+          <OpenSessionModal
+            open
+            onClose={() => setOpenSessionTarget(null)}
+            nodeId={nodeIdFromRoute}
+            offering={openSessionTarget}
+            nodeInfo={detail.info}
+            hubConfig={hubConfig}
+            walletClient={walletClient}
+            publicClient={publicClient}
+            dotBalance={typeof dotBalance === "bigint" ? dotBalance : 0n}
+            routerConfigured={routerConfigured}
+            onComplete={async () => {
+              await queryClient.invalidateQueries({ queryKey: ["userSessions"] });
+              await queryClient.invalidateQueries({ queryKey: ["nodeDetail"] });
+              await queryClient.invalidateQueries({ queryKey: ["nodeOpenSessions"] });
+              await queryClient.invalidateQueries({ queryKey: ["nodeOpenSessionsByModel"] });
+            }}
+          />
         )}
       </>)}
 

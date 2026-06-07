@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { formatUnits } from "viem";
 
@@ -16,8 +17,17 @@ import {
   readDefaultModelPrice,
 } from "@/lib/evm/modelOracle";
 import { readTeePriceMultiplierBps } from "@/lib/evm/escrow";
+import { FormattedDateTime } from "@/components/FormattedDateTime";
+import { ModelCapacitySection } from "@/components/model/ModelCapacitySection";
+import { routerBaseUrl } from "@/lib/router/activate";
+import {
+  useRouterCatalogProviders,
+  useRouterFeatureCatalog,
+} from "@/lib/router/useRouterData";
+import { useRouterTelemetry } from "@/lib/router/useRouterTelemetry";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
-import { useAccount, useChainId, usePublicClient } from "wagmi";
+import { useAccount, useChainId } from "wagmi";
+import { usePortalPublicClient } from "@/lib/usePortalPublicClient";
 
 const INTERNAL_DOT_DECIMALS = 18;
 
@@ -32,9 +42,12 @@ function formatUsdPerM(usd: number): string {
 }
 
 export default function ModelPage() {
+  const searchParams = useSearchParams();
+  const focusModelId = searchParams.get("modelId")?.toLowerCase() ?? null;
+
   const { isConnected } = useAccount();
   const chainId = useChainId();
-  const publicClient = usePublicClient();
+  const publicClient = usePortalPublicClient();
   const { hubConfig, configError } = useHubChainConfig();
 
   const chainMatches = Boolean(hubConfig && chainId === hubConfig.chainId);
@@ -80,12 +93,52 @@ export default function ModelPage() {
     if (m.includes('returned no data ("0x")') || m.includes("address is not a contract")) {
       return `${m}\n\nNo contract at ${hubConfig?.modelPriceOracleAddress ?? "oracle"} on the chain RPC. Set NEXT_PUBLIC_MODEL_PRICE_ORACLE_ADDRESS_ASSHUB_DEV_STUB in .env.local from sparkl-solo/contracts/deployments/local.json (modelPriceOracle). If .env still defines this key, remove it there — only .env.local should set addresses.`;
     }
+    if (m.includes("defaultPrice") && m.includes("reverted")) {
+      return `${m}\n\nThe oracle address likely does not match the RPC chain (e.g. local.json addresses against https://rpc-testnet.sparkl.network). For testnet, read addresses from SparklNetworkConfig (0x59e885FB2E6E0381e09206af00b2436bA1CB0DD6): modelPriceOracle(), providerRegistry(), settlementEscrow(). For local Anvil, set NEXT_PUBLIC_RPC_URL_ASSHUB_DEV_STUB to http://127.0.0.1:8545 and use contracts/deployments/local.json after launch-local.sh. Restart yarn dev after changing NEXT_PUBLIC_* env.`;
+    }
     return m;
   }, [defaultError, hubConfig?.modelPriceOracleAddress]);
 
   const defaultUnset = defaultPrice !== undefined && (
     defaultPrice.updatedAt === 0n || (defaultPrice.inputPer1kTokens === 0n && defaultPrice.outputPer1kTokens === 0n)
   );
+
+  const routerConfigured = Boolean(routerBaseUrl());
+
+  useEffect(() => {
+    if (!focusModelId) return;
+    const el = document.getElementById(`model-${focusModelId}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusModelId, perModelPrices.length]);
+  const {
+    data: catalogData,
+    isFetching: catalogFetching,
+    isError: catalogError,
+    error: catalogErr,
+  } = useRouterCatalogProviders();
+  const { data: featureCatalog } = useRouterFeatureCatalog();
+
+  const catalogProviders = catalogData?.data ?? [];
+
+  const telemetry = useRouterTelemetry({
+    enabled: routerConfigured,
+    initialProviders: catalogProviders,
+    initialNodes: undefined,
+  });
+  const liveProviders = telemetry.providers ?? catalogProviders;
+
+  const oracleModelIds = useMemo(
+    () => new Set(perModelPrices.map((m) => m.modelId.toLowerCase())),
+    [perModelPrices],
+  );
+
+  const featureDescriptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of featureCatalog?.data ?? []) {
+      m.set(e.key, e.description);
+    }
+    return m;
+  }, [featureCatalog]);
 
   return (
     <div className="px-3 py-3 w-full space-y-6">
@@ -150,7 +203,10 @@ export default function ModelPage() {
                   <div>Input: <span className="font-mono">{formatModelPrice(defaultPrice.inputPer1kTokens, dotLabel)}</span></div>
                   <div>Output: <span className="font-mono">{formatModelPrice(defaultPrice.outputPer1kTokens, dotLabel)}</span></div>
                 </div>
-                <p className="text-xs text-muted-foreground">Updated {new Date(Number(defaultPrice.updatedAt) * 1000).toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">
+                  Updated{" "}
+                  <FormattedDateTime value={Number(defaultPrice.updatedAt) * 1000} />
+                </p>
               </CardContent>
             </Card>
           )}
@@ -170,7 +226,15 @@ export default function ModelPage() {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 {perModelPrices.map((m) => (
-                  <Card key={m.modelId}>
+                  <Card
+                    key={m.modelId}
+                    id={`model-${m.modelId.toLowerCase()}`}
+                    className={
+                      focusModelId === m.modelId.toLowerCase()
+                        ? "ring-2 ring-primary"
+                        : undefined
+                    }
+                  >
                     <CardHeader className="pb-2">
                       <div className="flex items-baseline gap-2">
                         <CardTitle className="text-base">
@@ -184,7 +248,9 @@ export default function ModelPage() {
                     <CardContent className="space-y-2 pt-0">
                       <p className="text-sm">Input: <span className="font-mono">{formatModelPrice(m.price.inputPer1kTokens, dotLabel)}</span></p>
                       <p className="text-sm">Output: <span className="font-mono">{formatModelPrice(m.price.outputPer1kTokens, dotLabel)}</span></p>
-                      <p className="text-xs text-muted-foreground">Updated {new Date(Number(m.price.updatedAt) * 1000).toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Updated <FormattedDateTime value={Number(m.price.updatedAt) * 1000} />
+                      </p>
                     </CardContent>
                   </Card>
                 ))}
@@ -201,6 +267,47 @@ export default function ModelPage() {
       {!isConnected && !configError && oracleUnset ? (
         <Skeleton className="h-[200px] w-full" />
       ) : null}
+
+      {routerConfigured && (
+        <div className="space-y-4 pt-6 border-t">
+          <div>
+            <h2 className="text-lg font-semibold">Live network capacity (router)</h2>
+            <p className="text-sm text-muted-foreground mt-1 leading-relaxed max-w-3xl">
+              Provider offerings from sparkl-router catalog (tunnel health and available slots). On-chain prices above are separate reference rates.
+            </p>
+          </div>
+
+          <ModelCapacitySection
+            providers={liveProviders}
+            catalogFetching={catalogFetching}
+            catalogError={catalogError}
+            catalogErr={catalogErr}
+            oracleModelIds={oracleModelIds}
+            featureDescriptions={featureDescriptions}
+            telemetryConnected={telemetry.connected}
+            telemetryError={telemetry.error}
+          />
+
+          {perModelPrices
+            .filter((m) => !catalogProviders.some((p) => p.model_id === m.modelId))
+            .map((m) => (
+              <Alert key={m.modelId} variant="informational" className="mt-2">
+                <AlertTitle className="text-sm font-mono">{m.modelId}</AlertTitle>
+                <AlertDescription>On-chain oracle price only — no router providers yet.</AlertDescription>
+              </Alert>
+            ))}
+        </div>
+      )}
+
+      {!routerConfigured && (
+        <Alert variant="informational" className="mt-6">
+          <AlertTitle>Router not configured</AlertTitle>
+          <AlertDescription>
+            Set <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">NEXT_PUBLIC_SPARKL_ROUTER_URL</code> and{" "}
+            <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">SPARKL_ROUTER_URL</code> to show live capacity.
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 }

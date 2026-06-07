@@ -15,16 +15,13 @@ import {
 } from "@/lib/evm/registry";
 import { shortAddress } from "@/lib/formatAddress";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
-import {
-  useAccount,
-  useChainId,
-  usePublicClient,
-} from "wagmi";
+import { usePortalPublicClient } from "@/lib/usePortalPublicClient";
+import { useAccount, useChainId } from "wagmi";
 
 export default function OperatorDirectoryPage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
-  const publicClient = usePublicClient();
+  const publicClient = usePortalPublicClient();
   const { hubConfig, configError } = useHubChainConfig();
 
   const chainMatches = Boolean(hubConfig && chainId === hubConfig.chainId);

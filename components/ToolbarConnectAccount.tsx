@@ -1,13 +1,15 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { formatUnits } from "viem";
-import { useAccount, useChainId, useReadContract } from "wagmi";
+import { useAccount, useChainId } from "wagmi";
 
 import { settlementEscrowAbi } from "@/lib/abi";
 import { ZERO_ADDRESS } from "@/lib/chains";
 import { useHubChainConfig } from "@/lib/useHubChainConfig";
+import { usePortalPublicClient } from "@/lib/usePortalPublicClient";
 
 type RkAccount = {
   address: string;
@@ -45,16 +47,27 @@ export function ToolbarConnectAccount({
     );
   }, [hubConfig]);
 
-  const { data: escrowRaw, isFetching: escrowLoading } = useReadContract({
-    address: hubConfig?.settlementEscrowAddress,
-    abi: settlementEscrowAbi,
-    functionName: "getDotBalances",
-    args: account?.address ? [account.address as `0x${string}`] : undefined,
-    query: {
-      enabled: Boolean(
-        chainReady && hubConfig && account?.address && !escrowUnset,
-      ),
+  const publicClient = usePortalPublicClient();
+  const { data: escrowRaw, isFetching: escrowLoading } = useQuery({
+    queryKey: [
+      "toolbarEscrowBalance",
+      hubConfig?.chainId,
+      hubConfig?.settlementEscrowAddress,
+      account?.address,
+    ],
+    queryFn: async () => {
+      if (!publicClient || !hubConfig?.settlementEscrowAddress || !account?.address) {
+        return undefined;
+      }
+      return publicClient.readContract({
+        address: hubConfig.settlementEscrowAddress,
+        abi: settlementEscrowAbi,
+        functionName: "getDotBalances",
+        args: [account.address as `0x${string}`],
+      });
     },
+    enabled: Boolean(chainReady && publicClient && hubConfig && account?.address && !escrowUnset),
+    refetchInterval: 12_000,
   });
 
   const nativeSymbol = hubConfig?.nativeCurrency.symbol ?? "DOT";

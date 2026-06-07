@@ -15,12 +15,15 @@ import {
 } from "@/components/ui/dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { useAccount } from "wagmi";
 import { formatUnits, isHex, parseUnits, size } from "viem";
 import { waitForTransactionReceipt } from "viem/actions";
 import type { Address, Hex, PublicClient, WalletClient } from "viem";
 
 import {
   getSession,
+  MAX_SESSION_NAME_CHARS,
+  normalizeSessionName,
   openSession,
   parseSessionIdFromReceipt,
   settleFull,
@@ -123,9 +126,13 @@ function MigrateSessionForm({
   const [lockAmount, setLockAmount] = useState(() =>
     defaultLockAmount(session, dotBalance),
   );
+  const [sessionNameInput, setSessionNameInput] = useState(() =>
+    session.name.trim(),
+  );
 
   const [newSessionId, setNewSessionId] = useState<bigint | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(null);
+  const { connector } = useAccount();
 
   const { data: models = [] } = useQuery({
     queryKey: ["networkModels", oracleAddress],
@@ -206,17 +213,28 @@ function MigrateSessionForm({
     const tier =
       tierTab.id === "tee" ? SecurityTier.TEE_VERIFIED : SecurityTier.BEST_EFFORT;
 
+    let sessionName = "";
+    try {
+      sessionName = normalizeSessionName(sessionNameInput);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+
     setBusy(true);
     try {
       const hash = await openSession(
         walletClient,
+        publicClient,
         escrowAddress,
         nodeId,
         tier,
         model.modelId,
         amount,
+        sessionName,
         mode,
         hubNativeDecimals(walletClient),
+        connector,
       );
       const receipt = await waitForTransactionReceipt(publicClient, { hash });
       const sid = parseSessionIdFromReceipt(receipt);
@@ -245,6 +263,7 @@ function MigrateSessionForm({
         walletClient,
         publicClient,
         sessionId: newSessionId,
+        connector,
       });
       setApiKey(res.apiKey);
       onComplete();
@@ -273,8 +292,9 @@ function MigrateSessionForm({
           <DialogHeader>
             <DialogTitle>Migrate session</DialogTitle>
           </DialogHeader>
-          <DialogDescription className="flex flex-col gap-3">
-            <span className="text-sm font-medium">{stepTitle}</span>
+          <DialogDescription asChild>
+            <div className="flex flex-col gap-3 text-sm text-muted-foreground">
+            <span className="text-sm font-medium text-foreground">{stepTitle}</span>
 
             <Alert variant="warning">
               <AlertTitle>Compromised key</AlertTitle>
@@ -348,6 +368,21 @@ function MigrateSessionForm({
                   </Tabs>
 
                   <div className="space-y-1">
+                    <Label htmlFor="migrate-session-name">Session name (optional)</Label>
+                    <Input
+                      id="migrate-session-name"
+                      value={sessionNameInput}
+                      onChange={(e) => setSessionNameInput(e.target.value)}
+                      disabled={busy}
+                      maxLength={MAX_SESSION_NAME_CHARS}
+                      placeholder="e.g. Migrated session"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Up to {MAX_SESSION_NAME_CHARS} characters. Stored on-chain.
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
                     <Label>Lock amount (internal DOT)</Label>
                     <Input
                       value={lockAmount}
@@ -377,6 +412,7 @@ function MigrateSessionForm({
                 </Alert>
               )}
             </Tabs>
+            </div>
           </DialogDescription>
           <DialogFooter className="gap-2 sm:gap-0 sm:flex-row flex flex-col">
             {step === "close" ? (
